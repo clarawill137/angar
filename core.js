@@ -1069,21 +1069,32 @@ export function suggestions() {
 }
 export function hideSuggestion(name) { const m = M(); m.hide = [...new Set([...m.hide, norm(name)])].slice(-200); touch(); }
 
-// ───────────── деньги: банк Телефона (Phone-ST) ─────────────
+// ───────────── деньги: счета людей в Life (LifeMoney, Life 0.71+), иначе — банк Телефона (Phone-ST) ─────────────
 
+const LM = () => { try { return globalThis.LifeMoney?.ready?.() ? globalThis.LifeMoney : null; } catch { return null; } };
+/** Чем можно платить (Life): сперва счета того, для кого покупка, потом её, потом остальных. */
+export function payers(who = '') { const lm = LM(); try { return lm ? lm.payers(who) : []; } catch { return []; } }
+export function defaultPayer(who = '') { const lm = LM(); try { return lm ? lm.defaultPayer('angar', who) : ''; } catch { return ''; } }
 let bankMod = null;
 export async function bank() {
     if (bankMod !== null) return bankMod;
     try { const b = await import('/scripts/extensions/third-party/Phone-ST/bank.js'); bankMod = typeof b.getBank === 'function' ? b : false; } catch { bankMod = false; }
     return bankMod;
 }
-export function balance() {
+export function balance(acc = '') {
+    const lm = LM();
+    if (lm) { try { const b = lm.balance(acc || lm.defaultPayer('angar', '')); if (b) return { v: b.v, text: `${b.text} · ${b.name}` }; } catch { /* */ } }
     if (!bankMod) return null;
     try { const bk = bankMod.getBank(); return { v: num(bk.balance), text: bankMod.fmtMoney(bk.balance) }; } catch { return null; }
 }
-export function money(n) { try { return bankMod?.fmtMoney ? bankMod.fmtMoney(n) : `$${Math.round(n).toLocaleString('ru-RU')}`; } catch { return `$${n}`; } }
+export function money(n) { try { const lm = LM(); if (lm) return lm.fmt(n); return bankMod?.fmtMoney ? bankMod.fmtMoney(n) : `$${Math.round(n).toLocaleString('ru-RU')}`; } catch { return `$${n}`; } }
 export const priceNum = (p) => { const s = String(p ?? '').replace(/\s/g, '').replace(',', '.'); const m = s.match(/-?\d+(\.\d+)?/); if (!m) return 0; let v = Number(m[0]); if (/k|тыс/i.test(s)) v *= 1000; if (/m|млн/i.test(s)) v *= 1e6; return Math.round(v); };
-export async function pay(amount, label, category = 'оружие') {
+export async function pay(amount, label, category = 'оружие', acc = '', who = '') {
+    const lm = LM();
+    if (lm && amount > 0) {
+        const r = await lm.pay({ acc, who, amount, label: cut(label, 80), category, src: 'angar' });
+        return r.ok ? { ok: true, acc: r.acc, name: r.name } : { ok: false, why: r.why || 'не вышло' };
+    }
     const b = await bank();
     if (!b || !(amount > 0)) return { ok: false, why: b ? '' : 'банк Телефона не найден — без списания' };
     try {
@@ -1142,7 +1153,7 @@ export async function shopGen(shop, cat, ask = '', more = false, forWho = '') {
     return m.shop[key].list;
 }
 export const shopList = (shop, cat, forWho = '') => M().shop[shopKey(shop, cat, forWho)]?.list || [];
-export async function buy(shop, x, owner) {
+export async function buy(shop, x, owner, acc = '') {
     const why = x.fit && same(x._for, owner) ? x.fit : '';
     if (x._veh) {
         const v = normVeh({ ...x, why }, { owner, src: 'shop' });
@@ -1150,9 +1161,9 @@ export async function buy(shop, x, owner) {
         const price = priceNum(x.price);
         let paid = D.PAY_WORD[shop.pay] || '';
         if (shop.pay === 'money' && price > 0) {
-            const r = await pay(price, `${shop.name}: ${v.name}`, 'транспорт');
+            const r = await pay(price, `${shop.name}: ${v.name}`, 'транспорт', acc, owner);
             if (!r.ok && r.why && !/не найден/.test(r.why)) throw new Error(r.why);
-            paid = r.ok ? `−${money(price)}` : r.why;
+            paid = r.ok ? `−${money(price)}${r.name ? ` · ${r.name}` : ''}` : r.why;
         }
         addVeh(v);
         logFeed(`${shop.name}: ${v.name} → ${short(owner)}${paid ? ` (${paid})` : ''}`, 'shop');
@@ -1163,9 +1174,9 @@ export async function buy(shop, x, owner) {
     const price = priceNum(x.price);
     let paid = '';
     if (shop.pay === 'money' && price > 0) {
-        const r = await pay(price, `${shop.name}: ${it.name}`, 'оружие');
+        const r = await pay(price, `${shop.name}: ${it.name}`, 'оружие', acc, owner);
         if (!r.ok && r.why && !/не найден/.test(r.why)) throw new Error(r.why);
-        paid = r.ok ? `−${money(price)}` : r.why;
+        paid = r.ok ? `−${money(price)}${r.name ? ` · ${r.name}` : ''}` : r.why;
     } else paid = D.PAY_WORD[shop.pay] || '';
     addItem(it);
     logFeed(`${shop.name}: ${it.name} → ${short(owner)}${paid ? ` (${paid})` : ''}`, 'shop');

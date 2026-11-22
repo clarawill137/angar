@@ -666,6 +666,13 @@ function projSheet() {
     <div class="ang-row end">${!p.dead ? btn('bury', `${ic('grave')} На кладбище`, attr({ id }), 'sm ghost') : ''}${btn('delProj', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
 }
 
+/** Life 0.71: с какого счёта платить — у каждого свои деньги. */
+function payerChips(who) {
+    const l = C.payers(who);
+    if (!l.length) return '';
+    const cur = ui.modal.acc || C.defaultPayer(who);
+    return `${sec('Платит')}<div class="ang-row wrap">${l.slice(0, 9).map(a => `<button class="ang-chip${a.id === cur ? ' on' : ''}" data-g="goodPay" data-v="${esc(a.id)}">${esc(a.label)} <small>${esc(a.text)}</small></button>`).join('')}</div>`;
+}
 function goodSheet() {
     const shop = (D.SHOPS[C.era().id] || D.SHOPS.none).find(s => s.id === ui.shop.src);
     const x = shop ? C.shopList(shop, ui.shop.cat || 'all', ui.shop.for || '')[ui.modal.i] : null;
@@ -683,6 +690,7 @@ function goodSheet() {
     ${x.gadget?.does ? `<div class="ang-kv">${ic('chip')}<span>${esc(x.gadget.does)}${x.gadget.limit ? ` — предел: ${esc(x.gadget.limit)}` : ''}</span></div>` : ''}
     ${(x.mods || []).length ? `<div class="ang-row wrap">${x.mods.map(m => chip(typeof m === 'string' ? m : m.name)).join('')}</div>` : ''}
     ${sec('Для кого')}${whoChips(who, 'goodWho')}
+    ${shop.pay === 'money' && price > 0 ? payerChips(who) : ''}
     <div class="ang-actions">${btn('buy', `${ic('coin')} ${shop.pay === 'money' ? 'Купить' : shop.pay === 'req' ? 'Заявка' : 'Попросить'} для ${esc(C.short(who))}`, '', 'primary wide')}</div></div>`;
 }
 
@@ -1057,7 +1065,7 @@ const HANDLERS = {
     repair: async (el) => {
         const v = C.vehById(el.dataset.id); const cost = C.repairCost(v);
         if (cost && !confirm(`Механик возьмёт ${C.money(cost)}. Чиним?`)) return;
-        if (cost) { const r = await C.pay(cost, `Ремонт: ${v.name}`, 'транспорт'); if (!r.ok && r.why && !/не найден/.test(r.why)) { C.toast('warning', esc(r.why)); return; } }
+        if (cost) { const r = await C.pay(cost, `Ремонт: ${v.name}`, 'транспорт', '', v.owner || ''); if (!r.ok && r.why && !/не найден/.test(r.why)) { C.toast('warning', esc(r.why)); return; } }
         C.setVdyn(v.id, { dmg: {}, state: 'ok' }); C.logFeed(`Ремонт: ${v.name}`, 'gar'); after(); C.toast('success', 'Как новая');
     },
     repairLab: (el) => { const v = C.vehById(el.dataset.id); const p = C.addProject({ name: `Ремонт: ${v.name}`, field: 'tech', out: 'other', note: `Починить в лабе: ${D.zonesOf(v.kind).filter(([z]) => (C.vdyn(v.id).dmg[z] || 0) > 0).map(([, t]) => t).join(', ') || 'проверка'}` }); C.setVdyn(v.id, { state: 'repair' }); after(); modal('proj', { id: p.id }); },
@@ -1159,7 +1167,8 @@ const HANDLERS = {
     shopMore: () => { const e = C.era(); const shop = (D.SHOPS[e.id] || D.SHOPS.none).find(s => s.id === ui.shop.src); const cat = ui.shop.cat || 'all'; const fw = ui.shop.for || ''; withBusy(`shop:${shop.id}:${cat}:${fw}:more`, () => C.shopGen(shop, cat, ui.shop.ask, true, fw)); },
     shopFor: (el) => { ui.shop.for = el.dataset.v || ''; render(); },
     good: (el) => modal('good', { i: Number(el.dataset.v), who: ui.shop.for || ui.who || C.userName() }),
-    goodWho: (el) => { ui.modal.who = el.dataset.v; paintModal(); },
+    goodWho: (el) => { ui.modal.who = el.dataset.v; ui.modal.acc = ''; paintModal(); },
+    goodPay: (el) => { ui.modal.acc = el.dataset.v; paintModal(); },
     buy: () => {
         const e = C.era(); const shop = (D.SHOPS[e.id] || D.SHOPS.none).find(s => s.id === ui.shop.src);
         const list = C.shopList(shop, ui.shop.cat || 'all', ui.shop.for || '');
@@ -1167,7 +1176,7 @@ const HANDLERS = {
         if (!x) { closeModal(); return; }
         const who = ui.modal.who || ui.who || C.userName();
         withBusy('buy', async () => {
-            const r = await C.buy(shop, x, who);
+            const r = await C.buy(shop, x, who, ui.modal.acc || C.defaultPayer(who));
             const i = list.indexOf(x); if (i >= 0) list.splice(i, 1);
             C.touch();
             closeModal();
