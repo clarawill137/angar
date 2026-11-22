@@ -368,6 +368,41 @@
 .ang-pickrow.on .ang-cb { background: var(--acc); border-color: var(--acc); color: #120d05; }
 .ang-cb .ang-i { width: 14px; height: 14px; }
 
+/* квартирмейстер: досье бойца и набор по логике */
+.ang-dossier { margin: 4px 0 12px; padding: 12px; border-radius: var(--r); background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--acc); display: flex; flex-direction: column; gap: 8px; }
+.ang-dossier.empty p { margin: 0; color: var(--dim); font-size: 13px; }
+.ang-dos-h { display: flex; align-items: center; gap: 8px; }
+.ang-dos-h b { font-weight: 700; }
+.ang-dos-h small { color: var(--dim); font-size: 12px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ang-dos-h .ang-i { color: var(--acc); }
+.ang-dos-role { align-self: flex-start; padding: 3px 10px; border-radius: 99px; background: var(--accbg); color: var(--acc2); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.ang-dos-f { display: flex; flex-direction: column; gap: 4px; }
+.ang-dos-f > small { color: var(--dim); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.ang-dos-f p { margin: 0; font-size: 14px; }
+.ang-dos-f ul { margin: 0; padding-left: 18px; font-size: 14px; }
+.ang-dos-f li + li { margin-top: 2px; }
+.ang-dos-f .ang-row { gap: 6px; }
+.ang-pickrow.kit { position: relative; padding-right: 10px; }
+.ang-pickrow.kit > .ang-i { margin-top: 1px; color: var(--acc); }
+.ang-pickrow.kit > div { padding-right: 64px; }
+.ang-src { position: absolute; top: 9px; right: 9px; font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); }
+.ang-src.logic { color: var(--acc2); border-color: var(--acc); background: var(--accbg); }
+.ang-src.story { color: var(--dim); }
+.ang-why { color: var(--acc2) !important; opacity: 1 !important; font-size: 13px; }
+.ang-why::before { content: '→ '; opacity: .7; }
+.ang-why.big { display: flex; gap: 6px; align-items: flex-start; margin: 0 0 8px; padding: 8px 10px; border-radius: 10px; background: var(--accbg); font-size: 14px; }
+.ang-why.big::before { content: none; }
+.ang-why.big .ang-i { width: 16px; height: 16px; margin-top: 1px; }
+.ang-good .ang-why { margin: 0; }
+.ang-forwho { margin: 2px 0 6px; }
+.ang-forwho > small { color: var(--dim); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.ang-people.sm { padding-bottom: 6px; }
+.ang-people.sm button { min-width: 52px; padding: 4px; }
+.ang-people.sm button .ang-ava { width: 32px; height: 32px; }
+.ang-people.sm button:first-child { justify-content: center; min-width: 52px; }
+.ang-people.sm button:first-child .ang-i { width: 22px; height: 22px; margin: 5px 0 1px; }
+.ang-people.sm button:last-child { justify-content: flex-start; min-width: 52px; }
+
 /* кубики */
 .ang-die { position: relative; width: 132px; height: 132px; margin: 12px auto 8px; display: grid; place-items: center; }
 .ang-die svg { position: absolute; inset: 0; width: 100%; height: 100%; fill: var(--accbg); stroke: var(--acc); stroke-width: 1.6; stroke-linejoin: round; }

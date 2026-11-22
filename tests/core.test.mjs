@@ -160,4 +160,73 @@ assert.equal(D.JAM_AT(100), 0); assert.ok(D.JAM_AT(10) > D.JAM_AT(70));
 const rs = C.rangeShoot('Баки', { name: 'Глок', stats: { acc: 4 } });
 assert.equal(rs.shots.length, 10); assert.ok(rs.total >= 0 && rs.total <= 100);
 
+// 18. квартирмейстер: досье бойца → набор по логике, не по тому, что мелькало
+let seen = null;
+const reply = {
+    profile: { style: 'Снайпер и ножевой боец; вблизи — бионической рукой', role: 'снайпер-ликвидатор', skills: ['снайперская стрельба', 'ножевой бой', 'рукопашный'], weak: ['рука звенит на рамке'], temper: 'Параноик: ножи везде', rules: ['дома ствол под рукой'] },
+    items: [
+        { kind: 'knife', name: 'Нож в ботинке', slot: 'boot', why: 'паранойя: второй нож', src: 'logic' },
+        { kind: 'sniper', name: 'Винтовка', slot: '', where: 'сейф', why: 'основной навык', src: 'story' },
+        { kind: 'pistol', name: 'Зиг', slot: 'nonsense', why: 'запасной', src: 'weird' },
+    ],
+    why: 'Снайпер, который не доверяет тишине',
+};
+api.askFillJson = async (msgs, tokens, o, story) => { seen = { msgs, tokens, o, story }; return reply; };
+let loreRe = null;
+api.lore = { card: () => 'Баки Барнс. Снайпер, бионическая левая рука.', core: () => 'если угроза — бьёт первым', about: async (w, o) => { loreRe = o?.re; return '### Баки — бой\nснайпер Ревущих коммандос'; } };
+ctx.chatMetadata.powers = { by: { 'Баки': [{ name: 'Бионическая рука', can: 'держит пулю', limit: 'ЭМИ', cost: '' }] } };
+api.chatMeta = () => ctx.chatMetadata;
+const kit1 = await C.kitGen('Баки', { scen: 'job', ask: 'Острава ночью' });
+assert.equal(kit1.items.length, 3);
+assert.equal(kit1.items[2].slot, '', 'выдуманный слот отброшен');
+assert.equal(kit1.items[2].src, 'logic', 'странный src → логика');
+assert.equal(kit1.items[1].src, 'story');
+assert.equal(kit1.items[1].where, 'сейф');
+const dos = C.dossierOf('Баки');
+assert.ok(dos && dos.role === 'снайпер-ликвидатор' && dos.skills.length === 3, 'досье сохранено');
+assert.match(seen.msgs[0].content, /НЕ список того, что уже мелькало/);
+assert.match(seen.msgs[0].content, /"why":"почему именно ему/, 'в схеме — почему ему');
+assert.match(seen.msgs[1].content, /Досье ещё нет/);
+assert.match(seen.msgs[1].content, /Бионическая рука: держит пулю; предел: ЭМИ/, 'способности из Life — в материалах');
+assert.match(seen.msgs[1].content, /Ревущих коммандос/, 'лор о бое — в материалах');
+assert.ok(loreRe && loreRe.test('снайперская винтовка') && !loreRe.test('пекла пирог'), 'лор — только про бой и навыки');
+assert.match(seen.msgs[1].content, /«Задание»/);
+assert.match(seen.msgs[1].content, /Острава ночью/);
+assert.deepEqual(seen.story, { who: 'Баки', world: true, pairs: false });
+reply.profile = { style: 'другое', role: 'другое' };
+await C.kitGen('Баки', { scen: 'cover' });
+assert.match(seen.msgs[1].content, /Досье \(уже собрано/, 'второй сценарий держится того же досье');
+assert.match(seen.msgs[1].content, /снайпер-ликвидатор/);
+assert.equal(C.dossierOf('Баки').role, 'снайпер-ликвидатор', 'досье не переписано новым ответом');
+await C.kitGen('Баки', { scen: 'cover', alt: ['Нож в ботинке'] });
+assert.match(seen.msgs[1].content, /ДРУГОЙ вариант/);
+C.setDossier('Баки', { role: 'ликвидатор', skills: ['нож', ' ', 'винтовка'] }, true);
+assert.equal(C.dossierOf('Баки').edited, true);
+assert.deepEqual(C.dossierOf('Баки').skills, ['нож', 'винтовка'], 'пустые навыки отброшены');
+await C.kitGen('Баки', { scen: 'now', fresh: true });
+assert.equal(C.dossierOf('Баки').role, 'другое', 'fresh — досье заново');
+assert.equal(C.lastKit('Баки').scen, 'now');
+date = '10.03.1944'; C.bump();
+assert.equal(C.dossierOf('Баки'), null, 'в 1944 — своё досье');
+assert.equal(C.lastKit('Баки'), null, 'и свой набор');
+date = '21.11.2024'; C.bump();
+assert.ok(C.dossierOf('Баки'));
+
+// 19. магазин под человека: витрина отдельно, «чем подойдёт» уходит в вещь
+let shopSeen = null;
+delete api.askFillJson;
+api.askDeepJson = async (msgs) => { shopSeen = msgs; return { items: [{ kind: 'knife', name: 'Керамбит', fit: 'под его ножевой бой', price: 120 }] }; };
+const shop = D.SHOPS.aim[0];
+await C.shopGen(shop, 'knife', '', false, 'Баки');
+assert.match(shopSeen[1].content, /Витрина под одного покупателя: Баки/);
+assert.match(shopSeen[1].content, /Его досье: роль: другое/);
+assert.match(shopSeen[0].content, /"fit":/);
+assert.equal(C.shopList(shop, 'knife', 'Баки').length, 1);
+assert.equal(C.shopList(shop, 'knife').length, 0, 'общая витрина отдельно');
+const bought = await C.buy(shop, C.shopList(shop, 'knife', 'Баки')[0], 'Баки');
+assert.equal(bought.it.why, 'под его ножевой бой');
+await C.shopGen(shop, 'knife');
+assert.doesNotMatch(shopSeen[1].content, /Витрина под одного/, 'без «под кого» — как раньше');
+assert.doesNotMatch(shopSeen[0].content, /"fit":/);
+
 console.log('ангар · логика: все проверки прошли');

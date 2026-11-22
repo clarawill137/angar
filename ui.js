@@ -455,12 +455,16 @@ function shopHtml() {
     const shop = shops.find(s => s.id === ui.shop.src) || shops[0];
     ui.shop.src = shop.id;
     const cat = ui.shop.cat || 'all';
-    const list = C.shopList(shop, cat);
+    const fw = ui.shop.for || '';
+    const list = C.shopList(shop, cat, fw);
     const bal = C.balance();
-    const k = `shop:${shop.id}:${cat}`;
+    const k = `shop:${shop.id}:${cat}:${fw}`;
+    const dos = fw ? C.dossierOf(fw) : null;
     return `<div class="ang-shops">${shops.map(s => `<button class="${s.id === shop.id ? 'on' : ''}" data-g="shopSrc" data-v="${s.id}">${ic(s.ico)}<b>${esc(s.name)}</b><small>${esc(D.PAY_WORD[s.pay])}</small></button>`).join('')}</div>
     <div class="ang-shopdesc">${esc(shop.desc)}${shop.pay === 'money' ? `<span class="ang-bal">${ic('coin')} ${bal ? esc(bal.text) : 'банк Телефона не найден — без списания'}</span>` : ''}</div>
     <div class="ang-chips">${D.SHOP_CATS.map(c => `<button class="ang-chip${c[0] === cat ? ' on' : ''}" data-g="shopCat" data-v="${c[0]}">${esc(c[1])}</button>`).join('')}</div>
+    <div class="ang-forwho"><small>Под кого</small><div class="ang-people sm"><button class="${fw ? '' : 'on'}" data-g="shopFor" data-v="">${ic('store')}<span>всем</span></button>${peopleList().map(n => `<button class="${C.same(n, fw) ? 'on' : ''}" data-g="shopFor" data-v="${esc(n)}">${ava(n)}<span>${esc(C.short(n))}</span></button>`).join('')}</div>
+        ${fw ? `<div class="ang-hint">${dos ? `Продавец подбирает под досье ${esc(C.short(fw))}: ${esc(C.cut([dos.role, dos.style].filter(Boolean).join(' — '), 140))}` : `Досье ${esc(C.short(fw))} ещё нет — продавец смотрит карточку. Досье собирает квартирмейстер (Оружейная → Набор от ИИ).`}</div>` : ''}</div>
     <div class="ang-ask"><input data-gf="shop:ask" data-id="s" value="${esc(ui.shop.ask)}" placeholder="под заказ: «тихий пистолет под вечернее платье»">${btn('shopGen', busy(k) ? spin : ic('sparkles'), 'title="Спросить продавца"', 'ico primary')}</div>
     ${list.length ? `<div class="ang-goods">${list.map((x, i) => goodCard(x, i)).join('')}</div>
         <div class="ang-actions">${btn('shopMore', busy(`${k}:more`) ? `${spin} Подвозят…` : `${ic('plus')} Ещё товара`, '', 'ghost wide')}</div>`
@@ -472,7 +476,7 @@ function goodCard(x, i) {
     return `<button class="ang-good" data-g="good" data-v="${i}">
         <span class="ang-good-i">${ic(kind)}</span>
         <div><b>${esc(x.name)}</b><small>${esc([x.model, x.caliber, veh ? D.vkindOf(x.kind)[1] : D.kindName(x.kind)].filter(Boolean).join(' · '))}</small>
-        <p>${esc(C.cut(x.desc, 130))}</p></div>
+        ${x.fit ? `<p class="ang-why">${esc(C.cut(x.fit, 120))}</p>` : ''}<p>${esc(C.cut(x.desc, 130))}</p></div>
         <em>${C.priceNum(x.price) ? esc(C.money(C.priceNum(x.price))) : esc(String(x.price || '—'))}</em></button>`;
 }
 
@@ -546,6 +550,7 @@ function itemSheet() {
     ${Object.keys(it.stats || {}).length ? `${sec('Характеристика')}<div class="ang-stats">${Object.entries(STAT_LABEL).filter(([k]) => it.stats[k]).map(([k, l]) => statRow(l, it.stats[k])).join('')}${['weight', 'eff', 'rate'].filter(k => it.stats[k]).map(k => `<div class="ang-stat"><span>${{ weight: 'вес', eff: 'прицельно', rate: 'режим' }[k]}</span><b>${esc(it.stats[k])}</b></div>`).join('')}</div>` : ''}
     ${field('Моды', inp('it', id, 'mods', it.mods.join(', '), 'глушитель, коллиматор'))}
     ${field('Описание', area('it', id, 'desc', it.desc, 'что это, каково в руке', 3))}
+    ${it.why ? field('Почему ему', area('it', id, 'why', it.why, 'навык, привычка, характер', 2)) : ''}
     ${field('История вещи', area('it', id, 'story', it.story, 'откуда, чья была, что с ней было', 2))}
     <div class="ang-row end">${it.price ? chip(`цена ${it.price}`) : ''}${it.from ? chip(it.from) : ''}${btn('delItem', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
 }
@@ -585,6 +590,7 @@ function vehSheet() {
     ${sec('Тюнинг', String(v.mods.length))}<div class="ang-row wrap">${v.mods.map((x, i) => `<span class="ang-chip">${esc(x.name)}${x.from ? ` <small>${esc(x.from)}</small>` : ''}<button data-g="vmodDel" data-id="${esc(id)}" data-v="${i}">${ic('x')}</button></span>`).join('')}${btn('vmodAdd', `${ic('plus')} мод`, attr({ id }), 'sm ghost')}${btn('insightFor', `${ic('dice')} Инсайт`, attr({ id }), 'sm ghost')}</div>
     ${sec('Тайник в машине', String((v.stash || []).length))}<div class="ang-list tight">${(v.stash || []).map(C.itemById).filter(Boolean).map(it => `<div class="ang-row">${kic(it.kind)}<span>${esc(it.name)}</span>${btn('vstashOut', ic('x'), attr({ id, v: it.id }), 'ico sm ghost')}</div>`).join('')}${btn('vstashIn', `${ic('plus')} Спрятать сюда`, attr({ id }), 'sm ghost')}</div>
     ${field('Описание', area('v', id, 'desc', v.desc, 'как едет, чем хороша', 3))}
+    ${v.why ? field('Почему ему', area('v', id, 'why', v.why, 'навык, привычка, характер', 2)) : ''}
     ${field('История', area('v', id, 'story', v.story, 'откуда, что с ней было', 2))}
     <div class="ang-row end">${btn('delVeh', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
 }
@@ -605,6 +611,7 @@ function suitSheet() {
     ${sec('Системы', String(s.systems.length))}<div class="ang-list tight">${s.systems.map(y => `<div class="ang-sz"><span>${esc(y.name)}</span>${bar(y.pct, y.pct < 40 ? 'bad' : y.pct < 70 ? 'warn' : 'ok')}${btn('sys', '−', attr({ id, sys: y.id, v: -20 }), 'sm ghost')}${btn('sys', '+', attr({ id, sys: y.id, v: 20 }), 'sm ghost')}${btn('sysDel', ic('x'), attr({ id, sys: y.id }), 'ico sm ghost')}</div>`).join('')}${btn('sysAdd', `${ic('plus')} система`, attr({ id }), 'sm ghost')}</div>
     ${sec('Апгрейды', String(s.upgrades.length))}<div class="ang-row wrap">${s.upgrades.map((x, i) => `<span class="ang-chip">${esc(x.name)}${x.from ? ` <small>${esc(x.from)}</small>` : ''}<button data-g="supDel" data-id="${esc(id)}" data-v="${i}">${ic('x')}</button></span>`).join('')}${btn('supAdd', `${ic('plus')} апгрейд`, attr({ id }), 'sm ghost')}${btn('insightFor', `${ic('dice')} Инсайт`, attr({ id }), 'sm ghost')}</div>
     ${field('Заметки', area('s', id, 'note', s.note, 'история, что умеет, что ломается', 3))}
+    ${s.why ? field('Почему ему', area('s', id, 'why', s.why, 'навык, привычка, характер', 2)) : ''}
     <div class="ang-row end">${s.src === 'life' ? chip('из Life → Герои') : ''}${btn('delSuit', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
 }
 
@@ -642,14 +649,15 @@ function projSheet() {
 
 function goodSheet() {
     const shop = (D.SHOPS[C.era().id] || D.SHOPS.none).find(s => s.id === ui.shop.src);
-    const x = shop ? C.shopList(shop, ui.shop.cat || 'all')[ui.modal.i] : null;
+    const x = shop ? C.shopList(shop, ui.shop.cat || 'all', ui.shop.for || '')[ui.modal.i] : null;
     if (!x) return `<div class="ang-sheet">${sheetHead('Товар')}${empty('Уже не на витрине.')}</div>`;
     const veh = !!x._veh;
     const st = x.stats || {};
     const price = C.priceNum(x.price);
-    const who = ui.modal.who || ui.who || C.userName();
+    const who = ui.modal.who || ui.shop.for || ui.who || C.userName();
     return `<div class="ang-sheet">${sheetHead(`${ic(veh ? D.vkindOf(x.kind)[2] : D.kindOf(x.kind)[2])} ${esc(x.name)}`)}
     <div class="ang-goodhead"><small>${esc([x.model, x.caliber, veh ? D.vkindOf(x.kind)[1] : D.kindName(x.kind)].filter(Boolean).join(' · '))}</small><span class="ang-price">${price ? esc(C.money(price)) : esc(String(x.price || '—'))}</span></div>
+    ${x.fit ? `<p class="ang-why big">${ic('user')} ${x._for ? `${esc(C.short(x._for))}: ` : ''}${esc(x.fit)}</p>` : ''}
     <p class="ang-desc">${esc(x.desc || '')}</p>
     <div class="ang-stats">${veh ? `${statRow('скорость', st.speed)}${statRow('управляемость', st.handling)}${statRow('броня', st.armor)}${st.seats ? `<div class="ang-stat"><span>мест</span><b>${esc(st.seats)}</b></div>` : ''}${st.range ? `<div class="ang-stat"><span>запас хода</span><b>${esc(st.range)} км</b></div>` : ''}`
         : `${Object.entries(STAT_LABEL).filter(([k]) => st[k]).map(([k, l]) => statRow(l, Number(st[k]))).join('')}${x.cap ? `<div class="ang-stat"><span>ёмкость</span><b>${esc(x.cap)} · ${esc(D.FEEDS[x.feed] || 'магазин')}</b></div>` : ''}${['weight', 'eff', 'rate'].filter(k => st[k]).map(k => `<div class="ang-stat"><span>${{ weight: 'вес', eff: 'прицельно', rate: 'режим' }[k]}</span><b>${esc(st[k])}</b></div>`).join('')}${x.qty && x.kind === 'ammo' ? `<div class="ang-stat"><span>в упаковке</span><b>${esc(x.qty)}</b></div>` : ''}`}</div>
@@ -659,21 +667,52 @@ function goodSheet() {
     <div class="ang-actions">${btn('buy', `${ic('coin')} ${shop.pay === 'money' ? 'Купить' : shop.pay === 'req' ? 'Заявка' : 'Попросить'} для ${esc(C.short(who))}`, '', 'primary wide')}</div></div>`;
 }
 
+const kitPickAll = (r) => new Set(r ? [...C.arr(r.items).map((_, i) => `i${i}`), ...C.arr(r.vehicles).map((_, i) => `v${i}`), ...C.arr(r.suits).map((_, i) => `s${i}`)] : []);
+function kitFor(who) { const last = C.lastKit(who); return { who, scen: last?.scen || 'now', ask: last?.ask || '', res: last, pick: kitPickAll(last) }; }
+function dossierCard(who, d) {
+    const head = `<div class="ang-dos-h">${ic('user')}<b>Досье · ${esc(C.short(who))}</b><small>${esc(C.era().name)}${d?.edited ? ' · поправлено' : ''}</small>${d ? btn('kitDos', ic('pencil'), 'title="Поправить досье"', 'ico ghost sm') : ''}</div>`;
+    if (!d) return `<div class="ang-dossier empty">${head}<p>Соберётся с первым набором: стиль боя, навыки, тело, характер — и дальше держит все его наборы в одной логике. Поправить можно руками.</p></div>`;
+    const chips = (l, cls = '') => `<div class="ang-row wrap">${l.map(x => chip(x, cls)).join('')}</div>`;
+    return `<div class="ang-dossier">${head}
+        ${d.role ? `<div class="ang-dos-role">${esc(d.role)}</div>` : ''}
+        ${d.style ? `<div class="ang-dos-f"><small>Стиль боя</small><p>${esc(d.style)}</p></div>` : ''}
+        ${d.skills.length ? `<div class="ang-dos-f"><small>Навыки</small>${chips(d.skills)}</div>` : ''}
+        ${d.weak.length ? `<div class="ang-dos-f"><small>Слабые места</small>${chips(d.weak, 'warn')}</div>` : ''}
+        ${d.temper ? `<div class="ang-dos-f"><small>Характер в снаряжении</small><p>${esc(d.temper)}</p></div>` : ''}
+        ${d.rules.length ? `<div class="ang-dos-f"><small>Его правила</small><ul>${d.rules.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}</div>`;
+}
 function kitSheet() {
-    const k = ui.kit ||= { who: ui.who || C.userName(), res: null, pick: new Set() };
+    const k = ui.kit ||= kitFor(ui.who || C.userName());
     const r = k.res;
-    const rows = [];
+    const S = D.kitScen(k.scen);
+    const d = C.dossierOf(k.who);
+    const going = busy('kit');
+    const row = (key, x, icon, sub) => { const on = k.pick.has(key); return `<button class="ang-pickrow kit${on ? ' on' : ''}" data-g="kitPick" data-v="${key}"><i class="ang-cb">${on ? ic('check') : ''}</i>${ic(icon)}<div><b>${esc(x.name)}</b><small>${esc(sub)}</small>${x.why ? `<p class="ang-why">${esc(x.why)}</p>` : ''}${x.desc || x.look ? `<p>${esc(C.cut(x.desc || x.look, 140))}</p>` : ''}</div><em class="ang-src ${x.src === 'story' ? 'story' : 'logic'}">${esc(C.srcWord(x.src))}</em></button>`; };
+    let res = '';
     if (r) {
-        C.arr(r.items).forEach((x, i) => rows.push({ key: `i${i}`, ico: D.kindOf(x.kind)[2], t: x.name, s: [x.model, x.caliber, x.slot ? D.slotById(x.slot)?.short : 'дома'].filter(Boolean).join(' · '), d: x.desc }));
-        C.arr(r.vehicles).forEach((x, i) => rows.push({ key: `v${i}`, ico: D.vkindOf(x.kind)[2], t: x.name, s: [x.model, x.where].filter(Boolean).join(' · '), d: x.desc }));
-        C.arr(r.suits).forEach((x, i) => rows.push({ key: `s${i}`, ico: 'shield', t: x.name, s: D.SKINDS.find(k => k[0] === x.kind)?.[1] || x.kind, d: x.look }));
+        const RS = D.kitScen(r.scen);
+        const items = C.arr(r.items).map((x, i) => ({ x, i }));
+        const onBody = items.filter(({ x }) => x.slot), off = items.filter(({ x }) => !x.slot);
+        const itemRow = ({ x, i }) => row(`i${i}`, x, D.kindOf(x.kind)[2], [x.model, x.caliber, x.slot ? D.slotById(x.slot)?.short : (x.where || 'дома')].filter(Boolean).join(' · '));
+        const logic = [...C.arr(r.items), ...C.arr(r.vehicles), ...C.arr(r.suits)].filter(x => x.src !== 'story').length;
+        const all = C.arr(r.items).length + C.arr(r.vehicles).length + C.arr(r.suits).length;
+        res = `${sec(`Набор · ${esc(RS.name)}`, `логика ${logic} из ${all}`)}
+        ${r.why ? `<p class="ang-note">${esc(r.why)}</p>` : ''}
+        ${onBody.length ? `${sec(RS.carry ? 'При себе' : 'На теле, когда выйдет', String(onBody.length))}<div class="ang-list">${onBody.map(itemRow).join('')}</div>` : ''}
+        ${off.length ? `${sec('Дома, в машине, в тайниках', String(off.length))}<div class="ang-list">${off.map(itemRow).join('')}</div>` : ''}
+        ${C.arr(r.vehicles).length ? `${sec('Техника')}<div class="ang-list">${C.arr(r.vehicles).map((x, i) => row(`v${i}`, x, D.vkindOf(x.kind)[2], [x.model, x.where].filter(Boolean).join(' · '))).join('')}</div>` : ''}
+        ${C.arr(r.suits).length ? `${sec('Костюмы')}<div class="ang-list">${C.arr(r.suits).map((x, i) => row(`s${i}`, x, 'shield', D.SKINDS.find(q => q[0] === x.kind)?.[1] || x.kind)).join('')}</div>` : ''}
+        ${RS.carry ? '' : '<div class="ang-hint">Вещи лягут в Оружейную, а то, что носят на теле, — на стол: «Собраться», когда выходите.</div>'}
+        <div class="ang-actions">${btn('kitAdd', `${ic(RS.carry ? 'plus' : 'table')} ${RS.carry ? 'Добавить выбранное' : 'На стол, к выходу'} (${k.pick.size})`, '', 'primary wide')}${btn('kitAlt', going ? spin : ic('dice'), 'title="Другой вариант"', 'ico ghost')}</div>`;
     }
-    return `<div class="ang-sheet">${sheetHead(`${ic('sparkles')} Набор от ИИ`)}
-    <div class="ang-hint">Умная модель читает карточку, лор и историю и собирает, что человек носит и держит: стволы, ножи, гаджеты, броню, легенды, технику и костюмы. Ты отмечаешь, что брать.</div>
+    return `<div class="ang-sheet">${sheetHead(`${ic('sparkles')} Квартирмейстер`)}
+    <div class="ang-hint">Собирает не то, что уже мелькало, а то, что он взял бы сам: сначала досье — стиль боя, навыки, тело, характер, — потом набор под сценарий. У каждой вещи — почему именно ему; что из истории — помечено.</div>
     ${whoChips(k.who, 'kitWho')}
-    <div class="ang-actions">${btn('kitGo', busy('kit') ? `${spin} Квартирмейстер собирает…` : `${ic('sparkles')} Собрать для ${esc(C.short(k.who))}`, '', 'primary wide')}</div>
-    ${r ? `${r.why ? `<p class="ang-note">${esc(r.why)}</p>` : ''}<div class="ang-list">${rows.map(x => `<button class="ang-pickrow${k.pick.has(x.key) ? ' on' : ''}" data-g="kitPick" data-v="${x.key}"><i class="ang-cb">${k.pick.has(x.key) ? ic('check') : ''}</i>${ic(x.ico)}<div><b>${esc(x.t)}</b><small>${esc(x.s || '')}</small>${x.d ? `<p>${esc(C.cut(x.d, 140))}</p>` : ''}</div></button>`).join('') || empty('Пусто.')}</div>
-    <div class="ang-actions">${btn('kitAdd', `${ic('plus')} Добавить выбранное (${k.pick.size})`, '', 'primary wide')}</div>` : ''}</div>`;
+    <div class="ang-chips">${D.KIT_SCEN.map(x => `<button class="ang-chip${x.id === S.id ? ' on' : ''}" data-g="kitScen" data-v="${x.id}">${ic(x.ico)} ${esc(x.name)}</button>`).join('')}</div>
+    ${field('Уточнить (необязательно)', `<input data-gf="kit:ask" data-id="k" value="${esc(k.ask || '')}" placeholder="${S.id === 'cover' ? 'журналистка на конференции в Праге, рамка в отеле' : S.id === 'job' ? 'ночью на склад в Остраве, тихо' : 'куда и зачем'}">`)}
+    ${dossierCard(k.who, d)}
+    <div class="ang-actions">${btn('kitGo', going ? `${spin} Квартирмейстер думает…` : `${ic('sparkles')} Собрать: ${esc(S.name.toLowerCase())}`, '', 'primary wide')}${d ? btn('kitFresh', ic('refresh'), 'title="Собрать досье заново"', 'ico ghost') : ''}</div>
+    ${res}</div>`;
 }
 
 function storySheet() {
@@ -773,6 +812,18 @@ async function withBusy(key, fn) {
     ui.busy.add(key);
     render(); if (ui.modal) paintModal();
     try { await fn(); } catch (e) { console.warn('[Ангар]', key, e); C.toast('error', esc(String(e?.message || e))); } finally { ui.busy.delete(key); render(); if (ui.modal) paintModal(); }
+}
+function kitRun(o = {}) {
+    const k = ui.kit;
+    if (!k) return;
+    const want = { who: k.who, scen: k.scen };
+    withBusy('kit', async () => {
+        const alt = o.alt && k.res ? [...C.arr(k.res.items), ...C.arr(k.res.vehicles), ...C.arr(k.res.suits)].map(x => x.name) : null;
+        const r = await C.kitGen(want.who, { scen: want.scen, ask: k.ask, fresh: !!o.fresh, alt });
+        const cur = ui.kit;
+        if (cur && C.same(cur.who, want.who) && cur.scen === want.scen) { cur.res = r; cur.pick = kitPickAll(r); }
+        else C.toast('info', `Набор для ${esc(C.short(want.who))} готов — открой его снова`);
+    });
 }
 const upd = () => { try { C.A?.updatePrompt?.(); } catch { /* */ } };
 const after = () => { C.touch(); upd(); render(); if (ui.modal) paintModal(); };
@@ -898,25 +949,57 @@ const HANDLERS = {
         withBusy(`desc:${it.id}`, () => C.describe(it));
     },
     suggHide: (el) => { C.hideSuggestion(el.dataset.name); render(); },
-    // набор от ИИ
-    kit: () => { ui.kit = { who: ui.who || C.userName(), res: null, pick: new Set() }; modal('kit'); },
-    kitWho: (el) => { ui.kit.who = el.dataset.v; ui.kit.res = null; ui.kit.pick = new Set(); paintModal(); },
-    kitGo: () => withBusy('kit', async () => {
-        const r = await C.kitGen(ui.kit.who);
-        ui.kit.res = r;
-        ui.kit.pick = new Set([...C.arr(r.items).map((_, i) => `i${i}`), ...C.arr(r.vehicles).map((_, i) => `v${i}`), ...C.arr(r.suits).map((_, i) => `s${i}`)]);
-    }),
+    // квартирмейстер: досье и набор по логике
+    kit: () => { ui.kit = kitFor(ui.who || C.userName()); modal('kit'); },
+    kitWho: (el) => { ui.kit = kitFor(el.dataset.v); paintModal(); },
+    kitScen: (el) => { const k = ui.kit; if (k.scen === el.dataset.v) return; k.scen = el.dataset.v; k.res = null; k.pick = new Set(); paintModal(); },
+    kitGo: () => kitRun(),
+    kitAlt: () => kitRun({ alt: true }),
+    kitFresh: () => { if (!confirm(`Собрать досье ${C.short(ui.kit.who)} заново? ${C.dossierOf(ui.kit.who)?.edited ? 'Поправленное руками пропадёт.' : ''}`)) return; kitRun({ fresh: true }); },
+    kitDos: () => {
+        const who = ui.kit.who;
+        const d = C.dossierOf(who) || {};
+        form(`Досье · ${C.short(who)}`, [
+            { k: 'role', label: 'Роль', v: d.role || '', ph: 'снайпер и ликвидатор / инженер, не боец' },
+            { k: 'style', label: 'Стиль боя', type: 'area', rows: 3, v: d.style || '', ph: 'как дерётся: издалека, вблизи, избегает драки, бьёт первой…' },
+            { k: 'skills', label: 'Навыки', hint: 'через запятую', v: (d.skills || []).join(', '), ph: 'снайперская стрельба, ножевой бой, вождение' },
+            { k: 'weak', label: 'Слабые места', hint: 'через точку с запятой', v: (d.weak || []).join('; '), ph: 'рука звенит на рамке; не стреляет в спину' },
+            { k: 'temper', label: 'Характер в снаряжении', type: 'area', rows: 3, v: d.temper || '', ph: 'параноик: нож в ботинке, ствол в каждой комнате' },
+            { k: 'rules', label: 'Его правила', hint: 'через точку с запятой', type: 'area', rows: 2, v: (d.rules || []).join('; '), ph: 'дома ствол под рукой; при ней — без штурмового' },
+        ], (v) => {
+            C.setDossier(who, { role: v.role, style: v.style, temper: v.temper, skills: v.skills.split(/[,;\n]/), weak: v.weak.split(/[;\n]/), rules: v.rules.split(/[;\n]/) }, true);
+            modal('kit');
+            return true;
+        }, { ok: 'Сохранить досье' });
+    },
     kitPick: (el) => { const k = ui.kit; const v = el.dataset.v; if (k.pick.has(v)) k.pick.delete(v); else k.pick.add(v); paintModal(); },
     kitAdd: () => {
         const k = ui.kit; const r = k.res; if (!r) return;
+        const S = D.kitScen(r.scen);
+        const t = C.M().table;
         let n = 0;
-        C.arr(r.items).forEach((x, i) => { if (!k.pick.has(`i${i}`)) return; const it = C.normItem({ ...x, owner: k.who }, { src: 'ai', owner: k.who }); if (!x.slot && !['armor', 'legend'].includes(it.kind)) { it.where = 'дома'; it.base.where = 'дома'; } C.addItem(it); n++; });
+        const laid = [];
+        C.arr(r.items).forEach((x, i) => {
+            if (!k.pick.has(`i${i}`)) return;
+            const it = C.normItem({ ...x, owner: k.who }, { src: 'ai', owner: k.who });
+            const worn = it.slot || ['armor', 'legend'].includes(it.kind);
+            if (!S.carry || !worn) { it.where = x.where || 'дома'; it.base.where = it.where; }
+            C.addItem(it); n++;
+            if (!S.carry && worn) laid.push(it.id);
+        });
         C.arr(r.vehicles).forEach((x, i) => { if (!k.pick.has(`v${i}`)) return; C.addVeh({ ...x, owner: k.who }, { src: 'ai' }); n++; });
         C.arr(r.suits).forEach((x, i) => { if (!k.pick.has(`s${i}`)) return; C.addSuit({ ...x, who: k.who }, { src: 'ai' }); n++; });
-        C.logFeed(`Набор от ИИ для ${C.short(k.who)}: ${n}`, 'ai');
+        if (laid.length) {
+            t.pick = [...new Set([...t.pick, ...laid])];
+            if (!t.who.some(x => C.same(x, k.who))) t.who = [...t.who, k.who];
+            if (k.ask && !t.note) t.note = k.ask;
+        }
+        C.logFeed(`Квартирмейстер · ${S.name.toLowerCase()} для ${C.short(k.who)}: ${n}`, 'ai');
         ui.who = k.who;
-        closeModal(); after();
-        C.toast('success', `Добавлено: ${n}`);
+        closeModal();
+        if (laid.length) go('arm', 'table');
+        after();
+        C.toast('success', laid.length ? `Добавлено: ${n} · на столе: ${laid.length}` : `Добавлено: ${n}`);
     },
     // из истории
     story: (el) => { ui.story = { kind: el.dataset.v, list: null, pick: new Set() }; modal('story'); },
@@ -1048,14 +1131,16 @@ const HANDLERS = {
     // магазин
     shopSrc: (el) => { ui.shop.src = el.dataset.v; render(); },
     shopCat: (el) => { ui.shop.cat = el.dataset.v; if (ui.hall !== 'shop') { closeModal(); go('shop'); } else render(); },
-    shopGen: () => { const e = C.era(); const shop = (D.SHOPS[e.id] || D.SHOPS.none).find(s => s.id === ui.shop.src); const cat = ui.shop.cat || 'all'; withBusy(`shop:${shop.id}:${cat}`, () => C.shopGen(shop, cat, ui.shop.ask)); },
-    shopMore: () => { const e = C.era(); const shop = (D.SHOPS[e.id] || D.SHOPS.none).find(s => s.id === ui.shop.src); const cat = ui.shop.cat || 'all'; withBusy(`shop:${shop.id}:${cat}:more`, () => C.shopGen(shop, cat, ui.shop.ask, true)); },
-    good: (el) => modal('good', { i: Number(el.dataset.v), who: ui.who || C.userName() }),
+    shopGen: () => { const e = C.era(); const shop = (D.SHOPS[e.id] || D.SHOPS.none).find(s => s.id === ui.shop.src); const cat = ui.shop.cat || 'all'; const fw = ui.shop.for || ''; withBusy(`shop:${shop.id}:${cat}:${fw}`, () => C.shopGen(shop, cat, ui.shop.ask, false, fw)); },
+    shopMore: () => { const e = C.era(); const shop = (D.SHOPS[e.id] || D.SHOPS.none).find(s => s.id === ui.shop.src); const cat = ui.shop.cat || 'all'; const fw = ui.shop.for || ''; withBusy(`shop:${shop.id}:${cat}:${fw}:more`, () => C.shopGen(shop, cat, ui.shop.ask, true, fw)); },
+    shopFor: (el) => { ui.shop.for = el.dataset.v || ''; render(); },
+    good: (el) => modal('good', { i: Number(el.dataset.v), who: ui.shop.for || ui.who || C.userName() }),
     goodWho: (el) => { ui.modal.who = el.dataset.v; paintModal(); },
     buy: () => {
         const e = C.era(); const shop = (D.SHOPS[e.id] || D.SHOPS.none).find(s => s.id === ui.shop.src);
-        const list = C.shopList(shop, ui.shop.cat || 'all');
+        const list = C.shopList(shop, ui.shop.cat || 'all', ui.shop.for || '');
         const x = list[ui.modal.i];
+        if (!x) { closeModal(); return; }
         const who = ui.modal.who || ui.who || C.userName();
         withBusy('buy', async () => {
             const r = await C.buy(shop, x, who);
@@ -1121,6 +1206,7 @@ export function onChange(e) {
     if (ent === 'range') { ui.range.gun[id] = v; return; }
     if (ent === 'shop') { ui.shop.ask = v; return; }
     if (ent === 'ins') { if (ui.modal) ui.modal.ask = v; return; }
+    if (ent === 'kit') { if (ui.kit) ui.kit.ask = v; return; }
 }
 export function onInput(e) {
     const el = e.target;
@@ -1128,6 +1214,7 @@ export function onInput(e) {
     if (f === 'shop:ask') ui.shop.ask = el.value;
     if (f === 'ins:ask' && ui.modal) ui.modal.ask = el.value;
     if (f === 'table:note') C.M().table.note = el.value;
+    if (f === 'kit:ask' && ui.kit) ui.kit.ask = el.value;
 }
 async function upload(el) {
     const file = el.files?.[0];

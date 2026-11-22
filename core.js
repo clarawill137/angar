@@ -13,7 +13,7 @@ export function setApi(a) { A = a; }
 
 const ctx = () => SillyTavern.getContext();
 export const MODULE = 'angar';
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 // ───────────── мелочи ─────────────
 
@@ -81,6 +81,7 @@ function blank() {
         items: [], vehicles: [], suits: [], projects: [], materials: [], stashes: [],
         posts: {}, shots: [], rolls: {}, shop: {}, table: { who: [], pick: [], note: '' },
         range: [], insights: [], log: [], hide: [],
+        dossier: {}, kits: {},
     };
 }
 export function M() {
@@ -415,7 +416,7 @@ export function normItem(x, defaults = {}) {
         feed: D.FEEDS[str(x?.feed)] ? str(x.feed) : (D.FEED_BY_KIND[kind] || (D.isGun(kind) ? 'mag' : 'none')),
         ammo: D.AMMO_TYPES.some(a => a[0] === str(x?.ammo)) ? str(x.ammo) : 'fmj',
         mods: arr(x?.mods).map(m => cut(str(m), 50)).filter(Boolean).slice(0, 8),
-        stats: cleanStats(x?.stats), story: cut(str(x?.story), 400), lock: !!x?.lock,
+        stats: cleanStats(x?.stats), story: cut(str(x?.story), 400), why: cut(str(x?.why), 240), lock: !!x?.lock,
         slot: D.slotById(str(x?.slot)) ? str(x.slot) : '', where: cut(str(x?.where), 80),
         qty: Math.max(0, Math.round(num(x?.qty, ['ammo', 'throw', 'explosive'].includes(kind) ? (kind === 'ammo' ? 50 : 2) : 1))),
     };
@@ -512,7 +513,7 @@ export function normVeh(x, defaults = {}) {
         fuelType: D.FUEL[str(x?.fuelType)] ? str(x.fuelType) : (kind === 'ship' ? 'warp' : kind === 'jet' ? 'jet' : kind === 'boat' ? 'diesel' : 'gas'),
         stats: { speed: Math.max(1, Math.min(5, Math.round(num(st.speed, 3)))), handling: Math.max(1, Math.min(5, Math.round(num(st.handling, 3)))), armor: Math.max(1, Math.min(5, Math.round(num(st.armor, 1)))), seats: Math.max(1, Math.min(60, Math.round(num(st.seats, kind === 'bike' ? 2 : 5)))), range: Math.max(0, Math.round(num(st.range, kind === 'bike' ? 300 : 600))) },
         mods: arr(x?.mods).map(m => (typeof m === 'string' ? { name: cut(m, 60), from: '' } : { name: cut(str(m?.name), 60), from: cut(str(m?.from), 30) })).filter(m => m.name).slice(0, 12),
-        stash: [], story: cut(str(x?.story), 400),
+        stash: [], story: cut(str(x?.story), 400), why: cut(str(x?.why), 240),
     };
     v.base = { at: lastIndex(), fuel: clamp(x?.fuel ?? 100), dmg: {}, burn: 0, state: 'ok', where: cut(str(x?.where), 80), driver: '' };
     return v;
@@ -538,7 +539,7 @@ export function normSuit(x, defaults = {}) {
         armor: Math.max(1, Math.min(5, Math.round(num(x?.armor, kind === 'hero' ? 4 : 2)))),
         systems: arr(x?.systems).map(y => (typeof y === 'string' ? { id: uid(), name: cut(y, 60), pct: 100 } : { id: uid(), name: cut(str(y?.name), 60), pct: clamp(y?.pct ?? 100) })).filter(y => y.name).slice(0, 10),
         upgrades: arr(x?.upgrades).map(y => (typeof y === 'string' ? { name: cut(y, 80), from: '' } : { name: cut(str(y?.name), 80), from: cut(str(y?.from), 30) })).filter(y => y.name).slice(0, 12),
-        main: !!x?.main, key: str(x?.key),
+        main: !!x?.main, key: str(x?.key), why: cut(str(x?.why), 240),
     };
     s.base = { at: lastIndex(), st: 'intact', dmg: {}, where: cut(str(x?.where), 80), worn: false };
     return s;
@@ -1111,10 +1112,16 @@ const ERA_LINE = () => {
 const STYLE = 'Мир — ролевая God Complex (AU по MCU), по-русски. Держи канон и эпоху: никаких анахронизмов (в 1940-х — оружие 1940-х, в 2014 — 2014-го). Цены — в долларах США эпохи. Характеристики — честные, как у настоящих образцов; без инструкций по изготовлению и переделке.';
 const ITEM_SCHEMA = '{"kind":"pistol|revolver|smg|rifle|sniper|shotgun|heavy|knife|melee|throw|explosive|nonlethal|gadget|armor|legend|disguise|ammo|gear|other","name":"короткое имя","model":"реальная модель или «своя разработка»","caliber":"","cap":0,"feed":"mag|cyl|tube|clip|single|belt|charge|none","mags":2,"ammo":"fmj|hp|sub|ap|tracer|rubber|tranq|emp|shock|vib","stats":{"dmg":3,"acc":3,"range":3,"conceal":3,"noise":3,"reliab":4,"weight":"0,7 кг","eff":"50 м","rate":"полуавтомат"},"price":0,"desc":"2–4 предложения: что это, каково в руке, где хорошо и чем плохо","mods":[],"slot":"","qty":1,"gadget":{"does":"","max":3,"recharge":"","side":"","limit":"","reliab":4,"proto":false},"armor":{"level":3,"covers":""},"legend":{"alias":"","nation":"","docs":"","cover":""}}';
 
-/** Магазин: ассортимент от умной модели. */
-export async function shopGen(shop, cat, ask = '', more = false) {
+/** Магазин: ассортимент от умной модели. forWho — витрина под человека: по его досье (стиль боя, навыки, характер). */
+const shopKey = (shop, cat, forWho = '') => `${era().id}:${shop.id}:${cat}${forWho ? `:${norm(canon(forWho))}` : ''}`;
+export async function shopGen(shop, cat, ask = '', more = false, forWho = '') {
     const e = era();
-    const key = `${e.id}:${shop.id}:${cat}`;
+    const key = shopKey(shop, cat, forWho);
+    const fw = forWho ? canon(forWho) : '';
+    const dos = fw ? dossierOf(fw) : null;
+    let about = '';
+    if (fw && !dos) { try { about = cut(str(A?.lore?.card?.(fw, 1400)), 1400); } catch { /* */ } }
+    const fit = fw ? ',"fit":"одна фраза: чем подойдёт именно ему (или чем не подойдёт)"' : '';
     const m = M();
     const have = m.shop[key]?.list || [];
     const n = Math.max(4, Math.min(16, num(cfg().shopN, 10)));
@@ -1122,21 +1129,23 @@ export async function shopGen(shop, cat, ask = '', more = false) {
     const isVeh = cat === 'vehicle';
     const sys = isVeh ? `Ты — ${shop.name}: продавец техники в ролевой истории. ${shop.desc} ${STYLE}
 Собери предложение: ${Math.min(n, 8)} позиций — машины, мотоциклы, фургоны${['aim', 'ship', 'shield'].includes(e.id) ? ', катера, может быть джет' : ''}. Честные характеристики и описание живым языком: что за машина, как едет, чем хороша для шпиона и чем плоха.${shop.id === 'black' ? ' Чёрный рынок: перебитые номера, тёмное прошлое — в описании.' : ''}
-Ответ — только JSON: {"items":[{"kind":"car|bike|truck|boat|jet","name":"","model":"","color":"","price":0,"desc":"2–4 предложения","fuelType":"gas|diesel|charge|jet","stats":{"speed":3,"handling":3,"armor":1,"seats":5,"range":600},"mods":[]}]}` : `Ты — ${shop.name}: продавец в ролевой истории. ${shop.desc} ${STYLE}
+Ответ — только JSON: {"items":[{"kind":"car|bike|truck|boat|jet","name":"","model":"","color":"","price":0,"desc":"2–4 предложения","fuelType":"gas|diesel|charge|jet","stats":{"speed":3,"handling":3,"armor":1,"seats":5,"range":600},"mods":[]${fit}}]}` : `Ты — ${shop.name}: продавец в ролевой истории. ${shop.desc} ${STYLE}
 Собери ассортимент: ${n} позиций, раздел — ${catTxt}. У каждой — честная характеристика и описание живым языком, как у хорошего продавца: что это, каково в руке, для чего и чем плохо. Разные ценовые уровни, есть что-то неожиданное.${shop.id === 'black' ? ' Чёрный рынок: у части товара тёмное прошлое — номера спилены, «засветилось» где-то; это в описании.' : ''}${shop.pay !== 'money' ? ' Тут не платят деньгами — price ставь 0, а в desc скажи, чего это будет стоить (подпись, услуга, вопрос Джека).' : ''}
-Ответ — только JSON: {"items":[${ITEM_SCHEMA}]}. Пустые поля не пиши. Для ammo: caliber, qty (сколько патронов в упаковке), price за упаковку.`;
+Ответ — только JSON: {"items":[${fit ? ITEM_SCHEMA.replace(/\}$/, `${fit}}`) : ITEM_SCHEMA}]}. Пустые поля не пиши. Для ammo: caliber, qty (сколько патронов в упаковке), price за упаковку.`;
     if (isVeh) { /* схема техники уже в sys */ }
-    const usr = `${ERA_LINE()}\nКто покупает: ${cast().join(', ')}.${ask ? `\nПросьба покупателя: ${ask}` : ''}${more && have.length ? `\nУже на витрине (не повторяй): ${have.map(x => x.name).join(', ')}` : ''}`;
+    const forLine = fw ? `\nВитрина под одного покупателя: ${fw}. ${dos ? `Его досье: ${dossierLine(dos)}.` : `О нём: ${about || 'карточки нет — по канону и истории'}.`}\nПодбери под его стиль боя, навыки, тело и характер — не шаблон «для агента»; того, что у него уже есть, не предлагай (${ownedLine(fw) || 'ничего нет'}).` : '';
+    const usr = `${ERA_LINE()}\nКто покупает: ${fw || cast().join(', ')}.${forLine}${ask ? `\nПросьба покупателя: ${ask}` : ''}${more && have.length ? `\nУже на витрине (не повторяй): ${have.map(x => x.name).join(', ')}` : ''}`;
     const j = await askJson(sys, usr, 4200, 'магазин', (x) => Array.isArray(x?.items) && x.items.length);
-    const list = arr(j.items).filter(x => str(x?.name)).slice(0, 16).map(x => ({ ...x, _id: uid(), _veh: isVeh }));
-    m.shop[key] = { at: Date.now(), list: more ? [...have, ...list] : list, ask };
+    const list = arr(j.items).filter(x => str(x?.name)).slice(0, 16).map(x => ({ ...x, fit: cut(str(x.fit), 200), _id: uid(), _veh: isVeh, _for: fw }));
+    m.shop[key] = { at: Date.now(), list: more ? [...have, ...list] : list, ask, for: fw };
     touch();
     return m.shop[key].list;
 }
-export const shopList = (shop, cat) => M().shop[`${era().id}:${shop.id}:${cat}`]?.list || [];
+export const shopList = (shop, cat, forWho = '') => M().shop[shopKey(shop, cat, forWho)]?.list || [];
 export async function buy(shop, x, owner) {
+    const why = x.fit && same(x._for, owner) ? x.fit : '';
     if (x._veh) {
-        const v = normVeh(x, { owner, src: 'shop' });
+        const v = normVeh({ ...x, why }, { owner, src: 'shop' });
         if (!v.base.where) v.base.where = shop.id === 'aim' ? 'гараж А.И.М.' : 'гараж';
         const price = priceNum(x.price);
         let paid = D.PAY_WORD[shop.pay] || '';
@@ -1149,7 +1158,7 @@ export async function buy(shop, x, owner) {
         logFeed(`${shop.name}: ${v.name} → ${short(owner)}${paid ? ` (${paid})` : ''}`, 'shop');
         return { it: v, paid, veh: true };
     }
-    const it = normItem(x, { owner, src: 'shop', from: shop.name });
+    const it = normItem({ ...x, why }, { owner, src: 'shop', from: shop.name });
     if (!it.where) { it.where = shop.pay === 'req' && /А\.И\.М|Щ\.И\.Т|Гидр|С\.Н\.Р/.test(shop.name) ? `склад: ${shop.name.replace(/^(Склад|Арсенал|Квартирмейстер)\s*/i, '')}` : 'дома'; it.base.where = it.where; it.base.holder = owner; }
     const price = priceNum(x.price);
     let paid = '';
@@ -1163,13 +1172,156 @@ export async function buy(shop, x, owner) {
     return { it, paid };
 }
 
-/** Базовый набор: что у человека с собой и в загашниках — по карточке, лору и истории. */
-export async function kitGen(who) {
-    const sys = `Ты — квартирмейстер ролевой истории. Собери базовый набор снаряжения персонажа «${who}» на эту эпоху: что он реально носит и держит (оружие, ножи, гаджеты, броня, документы-легенды, маскировка, патроны), его технику и костюмы. Опирайся на карточку, лор и историю: канонное — по канону (у Баки — ножи, пистолеты, винтовка снайпера; у Хеди — её изобретения), остальное — правдоподобно для шпиона и героя этого уровня. Не больше 12 вещей, 3 машин и 3 костюмов. ${STYLE}
-Ответ — только JSON: {"items":[${ITEM_SCHEMA}],"vehicles":[{"kind":"car|bike|truck|boat|jet|ship","name":"","model":"","color":"","plate":"","desc":"","stats":{"speed":3,"handling":3,"armor":1,"seats":5,"range":600},"where":""}],"suits":[{"name":"","kind":"hero|tactical|armor|uniform|stealth|space","look":"как выглядит, для картинок, 1–3 предложения","note":"","systems":[],"armor":3}],"why":"одно предложение: из чего собрано"}. У каждой вещи slot — куда на теле: ${D.SLOTS.map(s => s.id).join('|')} (или "" — лежит дома).`;
-    const usr = `${ERA_LINE()}\nПерсонаж: ${who}.\nУже есть в Ангаре (не повторяй): ${[...M().items.filter(x => same(x.owner, who)).map(x => x.name), ...M().vehicles.filter(x => same(x.owner, who)).map(x => x.name), ...M().suits.filter(x => same(x.who, who)).map(x => x.name)].join(', ') || 'ничего'}.`;
-    return askJson(sys, usr, 5200, `набор ${who}`, (x) => x && (Array.isArray(x.items) || Array.isArray(x.vehicles)), { who, world: true, pairs: false });
+// ───────────── квартирмейстер: досье бойца и набор по логике ─────────────
+// Набор собирается не из того, что уже мелькало, а из того, кто он: стиль боя, навыки, тело, характер, привычки.
+// Сначала досье (одно на человека и эпоху; правится руками и держит все наборы в одной логике), потом набор
+// под сценарий. Каждая вещь — с «почему ему»; что из истории — помечено, основа — логика.
+
+const dosKey = (who) => `${norm(canon(who))}:${era().id}`;
+export function dossierOf(who) { return M().dossier[dosKey(who)] || null; }
+export function normDossier(p) {
+    if (!p || typeof p !== 'object') return null;
+    const list = (v, n, len) => arr(v).map(x => cut(str(x), len)).filter(Boolean).slice(0, n);
+    const d = {
+        style: cut(str(p.style), 280), role: cut(str(p.role), 60),
+        skills: list(p.skills, 7, 50), weak: list(p.weak, 4, 100),
+        temper: cut(str(p.temper), 280), rules: list(p.rules, 4, 150),
+    };
+    return d.style || d.skills.length || d.temper ? d : null;
 }
+export function setDossier(who, patch, edited = false) {
+    const cur = dossierOf(who) || {};
+    const d = normDossier({ ...cur, ...patch });
+    const m = M();
+    if (!d) { delete m.dossier[dosKey(who)]; touch(); return null; }
+    m.dossier[dosKey(who)] = { ...d, who: canon(who), era: era().id, at: storyDay() || '', edited: !!(edited || cur.edited) };
+    touch();
+    return m.dossier[dosKey(who)];
+}
+export function dropDossier(who) { delete M().dossier[dosKey(who)]; touch(); }
+export const dossierLine = (d) => (d ? [
+    d.role && `роль: ${d.role}`, d.style && `стиль боя: ${d.style}`, d.skills?.length && `навыки: ${d.skills.join(', ')}`,
+    d.weak?.length && `слабые места: ${d.weak.join('; ')}`, d.temper && `характер в снаряжении: ${d.temper}`, d.rules?.length && `его правила: ${d.rules.join('; ')}`,
+].filter(Boolean).join('. ') : '');
+
+/** Способности из Life (Персонаж → способности с пределами). */
+export function powersOf(who) {
+    try {
+        const by = A?.chatMeta?.()?.powers?.by || {};
+        const k = Object.keys(by).find(n => same(n, who));
+        return k ? arr(by[k]).filter(x => x && str(x.name)) : [];
+    } catch { return []; }
+}
+function heroOf(who) {
+    try { const list = A?.settings?.()?.hero?.list || {}; const k = Object.keys(list).find(n => same(n, who)); return k ? list[k] : null; } catch { return null; }
+}
+const SKILL_RE = /оруж|бо[йюяеё]|драк|стрел|снайпер|винтов|пистолет|револьвер|автомат|нож|клин[оу]к|лезви|рукопаш|единоборств|тренир|навык|умеет|умени|спецназ|агент|шпион|разведк|убий|убийц|киллер|наёмн|наемн|солдат|сержант|арми|войн|фронт|бионик|протез|сыворот|способн|мутант|энерги|боев|тактик|мисси|задани|операци|прикрыти|легенд|маскир|взрыв|гранат|брон|костюм|гаджет|изобрет|пилот|вожд|паранои|параноик|кошмар|триггер|охран|тайник|привычк|травм|страх|тревог|бдительн|контрол|защит|weapon|sniper|knife|fight|combat|assassin|soldier|spy|agent|skill|arm\b/i;
+
+/** Материалы на досье: карточка, ядро характера, способности, лор о бое и навыках, герой. */
+export async function dossierText(who) {
+    const name = canon(who);
+    const parts = [];
+    try { const t = A?.lore?.card?.(name, 3500); if (str(t)) parts.push(`## Карточка\n${t}`); } catch { /* */ }
+    try { const t = A?.lore?.core?.(name); if (str(t)) parts.push(`## Ядро характера\n${cut(t, 1600)}`); } catch { /* */ }
+    const pw = powersOf(name);
+    if (pw.length) parts.push(`## Способности (с пределами)\n${pw.slice(0, 10).map(x => `- ${str(x.name)}${x.can ? `: ${str(x.can)}` : ''}${x.limit ? `; предел: ${str(x.limit)}` : ''}${x.cost ? `; цена: ${str(x.cost)}` : ''}`).join('\n')}`);
+    if (!(cfg().model === 'deep' && A?.askFillJson)) {   // в умном запросе свод о нём придёт сам
+        try {
+            const p = A?.story?.person?.(name);
+            if (p) {
+                const bits = [p.who, p.arc, ...[['черты', p.traits], ['привычки', p.habits], ['страхи', p.fears], ['раны', p.wounds]].filter(([, v]) => arr(v).length).map(([l, v]) => `${l}: ${arr(v).join(', ')}`), p.now && `сейчас: ${p.now}`];
+                parts.push(`## Свод истории о нём\n${bits.filter(Boolean).join('\n')}`);
+            }
+        } catch { /* */ }
+    }
+    try { const t = await A?.lore?.about?.(name, { re: SKILL_RE, max: 7000 }); if (str(t)) parts.push(`## Лор о нём: бой, навыки, привычки\n${t}`); } catch { /* */ }
+    const h = heroOf(name);
+    if (h && (h.alias || h.suitLook)) parts.push(`## Герой\n${[h.alias && `имя героя: ${h.alias}`, h.suitLook && `костюм: ${cut(h.suitLook, 300)}`].filter(Boolean).join('; ')}`);
+    return parts.join('\n\n');
+}
+/** Тело сейчас: раны, действующие вещества, беременность — то, что режет снаряжение. */
+export async function bodyNow(who) {
+    const out = [];
+    try { const h = A?.senses?.hurt?.(who); if (num(h?.lvl) >= 1) out.push(`ранен: тяжесть ${h.lvl} из 4${num(h.n) > 1 ? `, ран ${h.n}` : ''}`); } catch { /* */ }
+    try { const fx = arr(A?.senses?.fx?.(who)); if (fx.length) out.push(`действует: ${fx.map(x => str(x?.what)).filter(Boolean).join(', ')}`); } catch { /* */ }
+    if (same(who, userName())) { await loadZ(); const z = pregnant(); if (z) out.push(`беременна, ${z.text} — без отдачи в живот, тяжёлого, бега и прыжков${z.week >= 20 ? '; ремни и броня на живот не садятся' : ''}`); }
+    return out.join('; ');
+}
+function sceneText(scen) {
+    const k = clock();
+    const lines = [`Место: ${k.loc || 'неизвестно'}${k.cast.length ? `; в сцене: ${k.cast.join(', ')}` : ''}.`];
+    if (scen === 'now') {
+        const c = chat();
+        const posts = [];
+        for (let i = c.length - 1; i >= 0 && posts.length < 3; i--) {
+            const m = c[i];
+            if (!m || m.extra?.type === 'comment') continue;
+            posts.unshift(`[#${i}] ${m.name}: ${cut(plain(m.mes), 900)}`);
+        }
+        if (posts.length) lines.push(`Последние посты:\n${posts.join('\n\n')}`);
+    }
+    return lines.join('\n');
+}
+const ownedLine = (who) => {
+    const W = world();
+    const it = M().items.filter(x => same(x.owner, who)).map(x => { const s = W.items.get(x.id) || {}; return `${x.name}${s.where ? ` (${s.where})` : s.slot ? ` (${D.slotById(s.slot)?.short || 'при себе'})` : ''}`; });
+    const vs = M().vehicles.filter(x => same(x.owner, who)).map(x => x.name);
+    const ss = M().suits.filter(x => same(x.who, who)).map(x => `костюм «${x.name}»`);
+    return [...it, ...vs, ...ss].slice(0, 40).join(', ');
+};
+const SRC_WORD = { logic: 'логика', story: 'из истории' };
+const KIT_EXTRA = '"why":"почему именно ему — одной фразой, через его навык, тело, характер или привычку","src":"logic|story"';
+function normKitList(list, n) {
+    return arr(list).filter(x => x && str(x.name)).slice(0, n).map(x => ({
+        ...x, name: cut(str(x.name), 80), why: cut(str(x.why), 240), src: x.src === 'story' ? 'story' : 'logic',
+        slot: D.slotById(str(x.slot)) ? str(x.slot) : '', where: cut(str(x.where), 80),
+    }));
+}
+
+/** Набор от квартирмейстера: досье бойца → набор под сценарий. fresh — досье заново; alt — другой вариант. */
+export async function kitGen(who, { scen = 'now', ask = '', fresh = false, alt = null } = {}) {
+    who = canon(who);
+    const S = D.kitScen(scen);
+    const dos = fresh ? null : dossierOf(who);
+    const e = era();
+    const lab = projectsNow().filter(p => !p.dead && projStage(p) >= D.STAGES.length - 1 && ['gadget', 'weapon', 'ammo', 'armor', 'med', 'other'].includes(p.out)).map(p => p.name);
+    const max = S.id === 'war' ? 14 : S.id === 'cover' ? 9 : 12;
+    const sys = `Ты — квартирмейстер и инструктор ролевой истории God Complex (шпионы, агенты, герои). Собери набор персонажа «${who}» — НЕ список того, что уже мелькало в истории, а то, что такой человек с его стилем боя, навыками, телом, характером и привычками реально взял бы ${S.ask}.
+Сначала досье бойца. Если досье дано — держись его, не переписывай; если нет — составь по материалам: стиль боя (как он дерётся и убивает или как избегает драки), роль, сильные навыки, слабые места и ограничения, характер в снаряжении (как характер решает, что и как он носит: паранойя — второй нож в ботинке и ствол в каждой комнате; сентиментальность — старый ствол, который давно пора сменить; брезгует шумом — глушитель и нож), его личные правила ношения.
+Потом набор. Правила:
+— Каждая вещь вытекает из досье: в why — почему именно ему, одной фразой. Никаких «на всякий случай» и шаблонного «как у всех агентов».
+— Основа — логика (src:"logic"). Канонное и любимое из истории можно (src:"story"), но логических больше половины.
+— Реализм ремесла: что прячется под одеждой эпохи и сезона, что звенит на рамке и светится на досмотре, что выдаёт легенду; вес и сколько рук свободно; патронов — разумно, под его стволы.
+— Изобретения Хеди — только настоящие, из её лаборатории (список ниже); новых не выдумывай — для нового есть лаба.
+— Учитывай тело: раны, беременность, бионику, сыворотку, силы — что они дают и что запрещают.
+— Не больше ${max} вещей; техника и костюмы — только если сценарий их правда требует (не больше 2 и 2).
+${STYLE}
+Ответ — только JSON: {"profile":{"style":"1–2 предложения","role":"2–4 слова","skills":["до 7 коротких"],"weak":["до 4"],"temper":"1–2 предложения","rules":["до 4 коротких"]},"items":[${ITEM_SCHEMA.replace(/\}$/, `,${KIT_EXTRA}}`)}],"vehicles":[{"kind":"car|bike|truck|boat|jet|ship","name":"","model":"","color":"","plate":"","desc":"","stats":{"speed":3,"handling":3,"armor":1,"seats":5,"range":600},"where":"",${KIT_EXTRA}}],"suits":[{"name":"","kind":"hero|tactical|armor|uniform|stealth|space","look":"как выглядит, для картинок, 1–3 предложения","note":"","systems":[],"armor":3,${KIT_EXTRA}}],"why":"одно предложение: логика набора в целом"}.
+У каждой вещи slot — куда на теле: ${D.SLOTS.map(s => s.id).join('|')}; "" — не на теле, тогда where: где лежит (дома, в машине, тайник, сейф).`;
+    const body = await bodyNow(who);
+    const usr = [
+        ERA_LINE(),
+        `Персонаж: ${who}. Сценарий: «${S.name}» — ${S.ask}.${str(ask) ? `\nУточнение: ${cut(str(ask), 300)}` : ''}`,
+        dos ? `Досье (уже собрано${dos.edited ? ', поправлено руками' : ''} — держись его, profile верни таким же): ${dossierLine(dos)}.` : 'Досье ещё нет — составь его по материалам ниже.',
+        body ? `Тело сейчас: ${body}.` : '',
+        `Уже есть у него в Ангаре (это его вещи; не повторяй, но опирайся — патроны под его стволы, ножны под его нож): ${ownedLine(who) || 'ничего'}.`,
+        lab.length ? `Готовые изобретения из лаборатории Хеди (можно выдать): ${lab.join(', ')}.` : '',
+        alt?.length ? `Предыдущий вариант набора был: ${alt.join(', ')}. Дай ДРУГОЙ вариант по тому же досье — другой подход к сценарию, не повторяя этих вещей.` : '',
+        `## Сцена\n${sceneText(S.id)}`,
+        `## Материалы на досье\n${await dossierText(who) || 'карточки и лора о нём не нашлось — опирайся на свод истории и канон MCU'}`,
+    ].filter(Boolean).join('\n');
+    const j = await askJson(sys, usr, 6400, `квартирмейстер: ${short(who)}`, (x) => x && Array.isArray(x.items) && x.items.length, { who, world: true, pairs: false });
+    if (!dos) setDossier(who, normDossier(j.profile) || {});
+    const res = {
+        who, scen: S.id, era: e.id, at: Date.now(), ask: cut(str(ask), 300), why: cut(str(j.why), 300),
+        items: normKitList(j.items, max), vehicles: normKitList(j.vehicles, 2), suits: normKitList(j.suits, 2),
+    };
+    M().kits[norm(who)] = res;
+    touch();
+    return res;
+}
+export const lastKit = (who) => { const k = M().kits[norm(canon(who))]; return k && k.era === era().id ? k : null; };
+export const srcWord = (s) => SRC_WORD[s] || SRC_WORD.logic;
 
 /** Из истории: что уже было в чате и лоре — оружие, техника, изобретения, костюмы. */
 export async function fromStory(kind) {
