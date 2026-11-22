@@ -13,7 +13,7 @@ export function setApi(a) { A = a; }
 
 const ctx = () => SillyTavern.getContext();
 export const MODULE = 'angar';
-export const VERSION = '0.3.0';
+export const VERSION = '0.3.2';
 
 // ───────────── мелочи ─────────────
 
@@ -1374,7 +1374,10 @@ async function historyText() {
         for (const b of names) {
             let data = null;
             try { data = await (ctx().loadWorldInfo ? ctx().loadWorldInfo(b) : wi.loadWorldInfo(b)); } catch { /* */ }
-            for (const e of Object.values(data?.entries || {})) {
+            // только то, что видно из этой эпохи (ядро «Священный таймлайн»): книги чужих эпох и будущее по дате — мимо
+            let list = Object.values(data?.entries || {});
+            try { if (typeof window.SacredTimeline?.visible === 'function') list = await window.SacredTimeline.visible(list, b); } catch { /* без ядра — всё */ }
+            for (const e of list) {
                 if (!e || e.disable || !str(e.content) || !LORE_RE.test(`${e.comment} ${e.content}`)) continue;
                 const piece = `### ${b}: ${str(e.comment)}\n${cut(str(e.content), 1500)}`;
                 if (len + piece.length > 12000) break;
