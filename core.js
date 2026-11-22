@@ -13,7 +13,7 @@ export function setApi(a) { A = a; }
 
 const ctx = () => SillyTavern.getContext();
 export const MODULE = 'angar';
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 // ───────────── мелочи ─────────────
 
@@ -81,7 +81,7 @@ function blank() {
         items: [], vehicles: [], suits: [], projects: [], materials: [], stashes: [],
         posts: {}, shots: [], rolls: {}, shop: {}, table: { who: [], pick: [], note: '' },
         range: [], insights: [], log: [], hide: [],
-        dossier: {}, kits: {},
+        dossier: {}, kits: {}, spar: [], train: {},
     };
 }
 export function M() {
@@ -1513,3 +1513,73 @@ export function armedSummary() {
     }
     return out;
 }
+
+// ───────────── тренировочный зал (3 этаж дома): спарринг ─────────────
+// Кубик d20 + поправки (навык из досье, суперсолдат, наработанные тренировки, беременность), потолок ±6 — как у лабы.
+// Тренировки копятся по человеку и приёму; на 5, 10 и 20 навык сам уходит в досье квартирмейстера.
+
+export const SPAR_DRILLS = [
+    ['box', 'Бокс', /бокс|удар|рукопаш|кулак/i], ['knife', 'Ножевой бой', /нож|клин|лезви/i], ['grap', 'Рукопашный', /рукопаш|захват|борьб|самбо|дзюдо|бросок/i],
+    ['dodge', 'Уклонение', /уклон|ловк|скорост|реакц/i], ['arm', 'Против бионики', /бионик|железн|вибраниев|рук[аи]/i],
+];
+export const SPAR_LVL = [['light', 'Лёгкая'], ['norm', 'Обычная'], ['hard', 'Жёсткая']];
+const drillOf = (id) => SPAR_DRILLS.find(d => d[0] === id) || SPAR_DRILLS[0];
+export function trainOf(who) { const m = M(); if (!m.train || typeof m.train !== 'object') m.train = {}; const k = norm(canon(who)); return (m.train[k] ||= {}); }
+export function sparMods(who, drill) {
+    const [, , re] = drillOf(drill);
+    const why = [];
+    let mod = 0;
+    const d = dossierOf(who);
+    if (d?.skills?.some(x => re.test(x))) { mod += 3; why.push('навык из досье'); }
+    if (/баки|bucky|барнс/i.test(who)) { mod += 3; why.push('суперсолдат'); }
+    const n = trainOf(who)[drill] || 0;
+    const t = Math.min(4, Math.floor(n / 5));
+    if (t) { mod += t; why.push(`тренировки ×${n}`); }
+    if (same(who, userName()) && pregnant()) { mod -= 2; why.push('беременность'); }
+    return { mod: Math.max(-6, Math.min(6, mod)), why };
+}
+const SPAR_FLAV = [
+    [0, 'Ничья: оба на матах, дышат как после марафона и смеются.'],
+    [1, 'На волосок — победа скорее на упрямстве, чем на технике.'],
+    [4, 'Уверенно: один раз открылся — и всё.'],
+    [8, 'Чисто: проигравший даже не понял, откуда прилетело.'],
+];
+/** Раунд спарринга. a — тренер, b — ученик. При беременности — только лёгкий и без бросков. */
+export function sparRound(a, b, drill = 'box', lvl = 'norm') {
+    const preg = pregnant() && [a, b].some(n => same(n, userName()));
+    let note = '';
+    if (preg && (lvl !== 'light' || drill === 'grap')) { lvl = 'light'; if (drill === 'grap') drill = 'dodge'; note = 'беременность: только лёгкая, без бросков и ударов в корпус'; }
+    const ma = sparMods(a, drill), mb = sparMods(b, drill);
+    const ra = d20(), rb = d20();
+    const sa = ra + ma.mod, sb = rb + mb.mod;
+    const win = sa === sb ? '' : sa > sb ? a : b;
+    const margin = Math.abs(sa - sb);
+    let flav = SPAR_FLAV[0][1];
+    for (const [k, t] of SPAR_FLAV) if (margin >= k) flav = t;
+    const bruiseP = preg ? 0 : lvl === 'hard' ? 0.5 : lvl === 'norm' ? 0.2 : 0.04;
+    const bruise = Math.random() < bruiseP ? (win ? (same(win, a) ? b : a) : b) : '';
+    const grew = [];
+    for (const w of [a, b]) {
+        const t = trainOf(w);
+        t[drill] = (t[drill] || 0) + 1;
+        if ([5, 10, 20].includes(t[drill])) {
+            const other = same(w, a) ? b : a;
+            const label = `${drillOf(drill)[1].toLowerCase()} — ${t[drill]} тренировок${same(w, b) ? ` у ${short(other)}` : ''}`;
+            const cur = dossierOf(w) || {};
+            const skills = [...arr(cur.skills).filter(x => !norm(x).startsWith(norm(drillOf(drill)[1]))), label].slice(-7);
+            setDossier(w, { ...cur, skills });
+            grew.push(`${short(w)}: ${label}`);
+        }
+    }
+    const r = { id: uid(), at: clock().date || storyDay(), a, b, drill, lvl, ra, rb, ma: ma.mod, mb: mb.mod, wa: ma.why, wb: mb.why, sa, sb, win, bruise, flav, note, grew };
+    const m = M();
+    m.spar = [r, ...arr(m.spar)].slice(0, 30);
+    touch();
+    return r;
+}
+export function sparScene(r) {
+    const [, dn] = drillOf(r.drill);
+    const lv = SPAR_LVL.find(x => x[0] === r.lvl)?.[1].toLowerCase() || '';
+    arm('spar', `[Тренировочный зал (3 этаж): спарринг ${short(r.a)} × ${short(r.b)} — ${dn.toLowerCase()}, ${lv}. Исход решён кубиком: ${r.win ? `сильнее ${short(r.win)}` : 'ничья'} — ${r.flav}${r.bruise ? ` ${short(r.bruise)} заработал(а) синяк.` : ''}${r.note ? ` (${r.note})` : ''} Покажи это действиями, дыханием, подколками; цифр и кубиков не называй.]`, { key: 'spar' });
+}
+

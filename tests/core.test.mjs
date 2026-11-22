@@ -229,4 +229,17 @@ await C.shopGen(shop, 'knife');
 assert.doesNotMatch(shopSeen[1].content, /Витрина под одного/, 'без «под кого» — как раньше');
 assert.doesNotMatch(shopSeen[0].content, /"fit":/);
 
+// 20. тренировочный зал: спарринг — кубик, поправки, тренировки уходят в досье
+const r1 = C.sparRound('Баки', 'Хеди', 'knife', 'norm');
+assert.ok(r1.ra >= 1 && r1.ra <= 20 && r1.rb >= 1 && r1.rb <= 20);
+assert.ok(r1.wa.includes('суперсолдат'), 'Баки — суперсолдат');
+assert.equal(C.trainOf('Хеди').knife, 1);
+for (let k = 0; k < 4; k++) C.sparRound('Баки', 'Хеди', 'knife', 'light');
+assert.equal(C.trainOf('Хеди').knife, 5);
+assert.ok(C.dossierOf('Хеди')?.skills.some(x => /ножевой бой — 5 тренировок у Баки/.test(x)), 'навык ушёл в досье Хеди');
+assert.ok(C.sparMods('Хеди', 'knife').why.some(w => /навык из досье|тренировки/.test(w)), 'и даёт поправку');
+C.sparScene(r1);
+assert.match(C.promptNote(), /Тренировочный зал \(3 этаж\): спарринг Баки × Хеди/);
+assert.ok(C.sparMods('Баки', 'box').mod <= 6, 'потолок +6');
+
 console.log('ангар · логика: все проверки прошли');

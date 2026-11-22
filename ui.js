@@ -156,7 +156,7 @@ export function open(hall = null, id = null) {
     try { C.seed(); C.migrateArtur(); C.heroImport(); } catch (e) { console.warn('[Ангар] старт чата', e); }
     C.loadZ().then(() => { if (isOpen()) render(); });
     C.bank().then(() => { if (isOpen() && ui.hall === 'shop') render(); });
-    if (hall && ['arm', 'gar', 'lab', 'suit', 'shop'].includes(hall)) ui.hall = hall;
+    if (hall === 'spar') { ui.hall = 'arm'; ui.sub.arm = 'spar'; } else if (hall && ['arm', 'gar', 'lab', 'suit', 'shop'].includes(hall)) ui.hall = hall;
     if (!ui.who || !C.people().some(n => C.same(n, ui.who))) ui.who = C.userName();
     ui.modal = null;
     const dlg = host();
@@ -203,7 +203,7 @@ function go(hall, sub = null) {
 
 // ───────────── Оружейная ─────────────
 
-const ARM_SUBS = [['people', 'Люди', 'user'], ['wall', 'Стена', 'layers'], ['table', 'Стол', 'table'], ['stash', 'Тайники', 'vault'], ['legend', 'Легенды', 'passport'], ['ammo', 'Патроны', 'ammo'], ['range', 'Тир', 'target']];
+const ARM_SUBS = [['people', 'Люди', 'user'], ['wall', 'Стена', 'layers'], ['table', 'Стол', 'table'], ['stash', 'Тайники', 'vault'], ['legend', 'Легенды', 'passport'], ['ammo', 'Патроны', 'ammo'], ['range', 'Тир', 'target'], ['spar', 'Зал', 'hand']];
 function subsNav(list, cur) { return `<div class="ang-subs">${list.map(([id, t, i]) => `<button class="${cur === id ? 'on' : ''}" data-g="sub" data-v="${id}">${ic(i)}<span>${t}</span></button>`).join('')}</div>`; }
 function suggestRow(kinds) {
     const list = C.suggestions().filter(e => kinds.includes(e.kind === 'lab' ? 'lab' : ['car', 'bike', 'truck', 'boat', 'jet', 'ship'].includes(e.kind) ? 'veh' : 'item'));
@@ -214,7 +214,7 @@ function suggestRow(kinds) {
 function armHtml() {
     const sub = ui.sub.arm || 'people';
     const top = `<div class="ang-actions">${btn('kit', `${ic('sparkles')} Набор от ИИ`, '', 'primary')}${btn('hall', `${ic('store')} Магазин`, 'data-v="shop"')}${btn('story', busy('story:arm') ? spin : ic('scroll'), 'data-v="arm" title="Из истории"', 'ico')}${btn('newItem', ic('plus'), 'title="Добавить вещь"', 'ico')}</div>`;
-    const body = { people: armPeople, wall: armWall, table: armTable, stash: armStash, legend: armLegend, ammo: armAmmo, range: armRange }[sub]();
+    const body = { people: armPeople, wall: armWall, table: armTable, stash: armStash, legend: armLegend, ammo: armAmmo, range: armRange, spar: armSpar }[sub]();
     return `${top}${subsNav(ARM_SUBS, sub)}${suggestRow(['item'])}${body}`;
 }
 function itemCard(it, opts = {}) {
@@ -332,6 +332,25 @@ function armRange() {
     ${R.res ? `<div class="ang-range">${R.res.map(r => `<div class="ang-range-r">${targetSvg(r.shots)}<div><b>${esc(C.short(r.who))}</b><small>${esc(r.item)}</small><span class="ang-big">${r.total}<small>/100</small></span><small>${r.shots.join(' · ')}</small></div></div>`).join('')}
         <div class="ang-actions">${btn('rangeScene', `${ic('send')} В сцену`, '', 'primary')}${btn('rangeSave', 'Записать', '', 'ghost')}</div></div>` : ''}
     ${hist.length ? `${sec('Прошлые стрельбы')}<div class="ang-list">${hist.map(h => `<div class="ang-row">${ic('target')}<span>${esc(h.at || '')}</span><small>${h.res.map(r => `${esc(C.short(r.who))} ${r.total}`).join(' · ')}</small></div>`).join('')}</div>` : ''}`;
+}
+function armSpar() {
+    const S = ui.spar ||= (() => { const ppl = peopleList(); const me = C.userName(); const him = ppl.find(n => /баки|bucky|барнс/i.test(n)) || ppl.find(n => !C.same(n, me)) || me; return { a: him, b: me, drill: 'box', lvl: 'norm', res: null }; })();
+    const r = S.res;
+    const pick = (slot) => `<div class="ang-people">${peopleList().map(n => `<button class="${C.same(S[slot], n) ? 'on' : ''}" data-g="sparWho" data-slot="${slot}" data-v="${esc(n)}">${ava(n)}<span>${esc(C.short(n))}</span></button>`).join('')}</div>`;
+    const prog = (who) => { const t = C.trainOf(who); return `<div class="ang-spar-prog"><b>${esc(C.short(who))}</b>${C.SPAR_DRILLS.map(([id, nm]) => { const n = t[id] || 0; return `<div><span>${esc(nm)}</span>${bar(Math.min(100, n * 5))}<small>${n}</small></div>`; }).join('')}</div>`; };
+    const hist = C.arr(C.M().spar).slice(0, 6);
+    return `<div class="ang-hint">Тренировочный зал на третьем этаже дома. Кубик d20 + поправки (досье, суперсолдат, тренировки, беременность; потолок ±6). Тренировки копятся, и на 5, 10, 20 навык сам уходит в досье квартирмейстера.</div>
+    ${sec('Тренер')}${pick('a')}${sec('Против')}${pick('b')}
+    ${sec('Что отрабатывают')}<div class="ang-chips">${C.SPAR_DRILLS.map(([id, nm]) => `<button class="ang-chip${S.drill === id ? ' on' : ''}" data-g="sparDrill" data-v="${id}">${esc(nm)}</button>`).join('')}</div>
+    ${segs('sparLvl', S.lvl, C.SPAR_LVL)}
+    <div class="ang-actions">${btn('sparGo', `${ic('hand')} Раунд`, '', 'primary wide')}</div>
+    ${r ? `<div class="ang-spar-res">
+        <div class="ang-spar-dice"><div>${dieHtml(r.ra, false, r.win && C.same(r.win, r.a) ? 'out-win' : '')}<b>${esc(C.short(r.a))}</b><small>${r.ma >= 0 ? '+' : ''}${r.ma}${r.wa.length ? ` · ${esc(r.wa.join(', '))}` : ''}</small></div><span>×</span><div>${dieHtml(r.rb, false, r.win && C.same(r.win, r.b) ? 'out-win' : '')}<b>${esc(C.short(r.b))}</b><small>${r.mb >= 0 ? '+' : ''}${r.mb}${r.wb.length ? ` · ${esc(r.wb.join(', '))}` : ''}</small></div></div>
+        <p class="ang-desc"><b>${r.win ? `Сильнее ${esc(C.short(r.win))} (${r.sa}:${r.sb})` : `Ничья (${r.sa}:${r.sb})`}</b> — ${esc(r.flav)}${r.bruise ? ` ${esc(C.short(r.bruise))} — синяк.` : ''}</p>
+        ${r.note ? `<div class="ang-hint">${esc(r.note)}</div>` : ''}${r.grew.length ? `<div class="ang-note">В досье: ${esc(r.grew.join('; '))}</div>` : ''}
+        <div class="ang-actions">${btn('sparScene', `${ic('send')} В сцену`, '', 'primary')}${btn('sparGo', `${ic('refresh')} Ещё раунд`, '', 'ghost')}</div></div>` : ''}
+    ${sec('Наработано')}${[S.a, S.b].filter((n, i, l) => l.findIndex(x => C.same(x, n)) === i).map(prog).join('')}
+    ${hist.length ? `${sec('Прошлые раунды')}<div class="ang-list">${hist.map(h => `<div class="ang-row">${ic('hand')}<span>${esc(h.at || '')}</span><small>${esc(C.short(h.a))} × ${esc(C.short(h.b))} · ${esc(C.SPAR_DRILLS.find(d => d[0] === h.drill)?.[1] || '')} · ${h.win ? esc(C.short(h.win)) : 'ничья'}</small></div>`).join('')}</div>` : ''}`;
 }
 function targetSvg(shots) {
     let seed = shots.reduce((a, b, i) => a + b * (i + 3), 7);
@@ -937,6 +956,11 @@ const HANDLERS = {
         R.res = res;
         after();
     },
+    sparWho: (el) => { ui.spar[el.dataset.slot] = el.dataset.v; render(); },
+    sparDrill: (el) => { ui.spar.drill = el.dataset.v; render(); },
+    sparLvl: (el) => { ui.spar.lvl = el.dataset.v; render(); },
+    sparGo: () => { const S = ui.spar; if (C.same(S.a, S.b)) { C.toast('info', 'С самим собой — это бой с тенью; выбери второго'); return; } S.res = C.sparRound(S.a, S.b, S.drill, S.lvl); render(); },
+    sparScene: () => { if (!ui.spar?.res) return; C.sparScene(ui.spar.res); C.toast('success', 'Спарринг уйдёт в следующий пост'); },
     rangeScene: () => { const R = ui.range; C.arm('range', `[Тир (Ангар): ${R.res.map(r => `${C.short(r.who)} — ${r.total} из 100 (${r.item})`).join('; ')}. Счёт решён; если к месту — подколки, спор, кто платит.]`, { key: 'range' }); HANDLERS.rangeSave(); C.toast('success', 'Тир уйдёт в следующий пост'); },
     rangeSave: () => { const R = ui.range; if (!R?.res) return; C.M().range.unshift({ at: C.clock().date || C.storyDay(), res: R.res.map(r => ({ who: r.who, item: r.item, total: r.total })) }); C.M().range = C.M().range.slice(0, 30); R.res = null; after(); },
     // предложения
