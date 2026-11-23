@@ -1405,9 +1405,15 @@ const HANDLERS = {
     open: (el) => open(el.dataset.hall || 'arm', el.dataset.id || null),
 };
 
+/** Свои кнопки: окно Ангара и его плитки в хабе Life (сцена, строка персонажа, трекер «Боекомплект»). До 0.4.1 перехват
+ *  на документе брал любой [data-g] на странице — и глотал «Историю» внизу Life (у неё был data-g="story", а у нас свой
+ *  «story» — «из истории»): тап уходил сюда, хаб его не видел. */
+const MINE = '#ang-dialog, .ang-scene, .ang-prow, .ang-trk';
+const mine = (el) => !!el?.closest?.(MINE);
+
 export function onClick(e) {
     const el = e.target.closest?.('[data-g]');
-    if (!el) return;
+    if (!el || !mine(el)) return;
     const g = el.dataset.g;
     const h = HANDLERS[g];
     if (!h) return;
@@ -1424,6 +1430,7 @@ function setPath(obj, path, val) {
 }
 export function onChange(e) {
     const el = e.target;
+    if (!mine(el)) return;
     if (el?.dataset?.gup) { upload(el); return; }
     const f = el?.dataset?.gf;
     if (!f) return;
@@ -1458,6 +1465,7 @@ export function onChange(e) {
 }
 export function onInput(e) {
     const el = e.target;
+    if (!mine(el)) return;
     const f = el?.dataset?.gf;
     if (f === 'shop:ask') ui.shop.ask = el.value;
     if (f === 'ins:ask' && ui.modal) ui.modal.ask = el.value;

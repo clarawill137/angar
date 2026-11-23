@@ -13,7 +13,7 @@ export function setApi(a) { A = a; }
 
 const ctx = () => SillyTavern.getContext();
 export const MODULE = 'angar';
-export const VERSION = '0.4.0';
+export const VERSION = '0.4.1';
 
 // ───────────── мелочи ─────────────
 
