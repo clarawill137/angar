@@ -13,7 +13,7 @@ export function setApi(a) { A = a; }
 
 const ctx = () => SillyTavern.getContext();
 export const MODULE = 'angar';
-export const VERSION = '0.4.1';
+export const VERSION = '0.4.2';
 
 // ───────────── мелочи ─────────────
 
@@ -842,7 +842,7 @@ export function upLab(x) {
     if (!t) return [];
     // готовое, подходящее по виду; из лора (у них ключ) — только помеченные up: большие изобретения вроде Арта апгрейдом не ставятся
     const loreUp = new Map(D.INVENTIONS.filter(i => i.up).map(i => [i.key, i]));
-    const fitsLore = (p) => { if (!p.key) return true; const inv = loreUp.get(p.key); return !!inv && (!inv.vk || (t === 'veh' && inv.vk.includes(x.kind))); };
+    const fitsLore = (p) => { if (!p.key) return true; const inv = loreUp.get(p.key); return !!inv && (!inv.ut || inv.ut.includes(t)) && (!inv.vk || (t === 'veh' && inv.vk.includes(x.kind))); };
     return projectsNow().filter(p => !p.dead && projStage(p) >= D.STAGES.length - 1 && LAB_OUT[t].includes(p.out) && fitsLore(p) && !arr(p.released).includes(x.id))
         .map(p => ({ id: `lab:${p.id}`, pid: p.id, name: p.name, lab: true, field: p.field, note: cut(p.spec || p.note, 220), focus: D.FIELD_FOCUS[p.field]?.[t] || D.FOCUS[t][0][0], diff: -1, cost: 0, adds: cut(p.spec || p.note, 160) }));
 }
@@ -1772,6 +1772,41 @@ export async function insights(roll, { p = null, x = null, ask = '' } = {}) {
 
 const FIELD_OF_T = { gun: 'weapon', blade: 'weapon', gadget: 'tech', armor: 'tech', veh: 'space', suit: 'tech' };
 /** Ссылка на часть → {kind, id, set, name, text, field, ready, raw}. */
+// ───────────── рецепты сплавов (0.4.2) ─────────────
+
+/** Часть рецепта → ссылка сплава: «suit:ключ» — костюм, «veh:ключ» — техника, голый ключ — вещь с этим ключом, а нет — проект. */
+export function recipeRef(spec) {
+    const m = M();
+    const s = str(spec);
+    const i = s.indexOf(':');
+    const k = i > 0 ? s.slice(0, i) : '', key = i > 0 ? s.slice(i + 1) : s;
+    if (k === 'suit') { const x = m.suits.find(q => q.key === key); return x ? { kind: 'suit', id: x.id } : null; }
+    if (k === 'veh') { const x = m.vehicles.find(q => q.key === key); return x ? { kind: 'veh', id: x.id } : null; }
+    const it = m.items.find(q => q.key === key);
+    if (it) return { kind: 'item', id: it.id };
+    const p = projectsNow().find(q => q.key === key && !q.dead);
+    return p ? { kind: 'proj', id: p.id } : null;
+}
+const refKey = (q) => `${q?.kind}:${q?.id}`;
+/** Рецепты, которые уже можно сплавить: дата дошла до ty, все части на месте. done — по нему уже сплавляли. */
+export function recipesNow() {
+    const ty = hedyYear() + 0.001;
+    const out = [];
+    for (const r of D.RECIPES) {
+        if (num(r.ty, 0) > ty) continue;
+        const refs = r.parts.map(recipeRef);
+        const parts = refs.map(q => (q ? fusePart(q) : null));
+        if (!parts.every(Boolean)) continue;
+        out.push({ ...r, refs, names: parts.map(q => q.name), done: M().projects.some(p => p.recipe === r.key) });
+    }
+    return out;
+}
+/** Части в сплаве ровно как в рецепте (порядок неважен) → рецепт. */
+export function recipeOf(refs) {
+    const want = new Set(arr(refs).map(refKey));
+    return recipesNow().find(r => r.refs.length === want.size && r.refs.every(q => want.has(refKey(q)))) || null;
+}
+
 export function fusePart(ref) {
     if (!ref) return null;
     if (ref.kind === 'proj') { const p = projById(ref.id); return p && !p.dead ? { kind: 'proj', id: p.id, name: p.name, text: p.spec || p.note || '', field: p.field, ready: projStage(p) >= D.STAGES.length - 1, raw: projStage(p) === 0 } : null; }
@@ -1821,8 +1856,9 @@ const KIND_RU = { proj: 'проект', idea: 'идея', item: 'вещь', veh:
 const andList = (l) => (l.length > 1 ? `${l.slice(0, -1).join(', ')} и ${l[l.length - 1]}` : l[0] || '');
 const dot = (t) => { t = str(t); return t && !/[.!?…»]$/.test(t) ? `${t}.` : t; };
 /** Сплав по броску: новый проект (или урок, или авария). */
-export async function fuse(r, { ask = '', helpers = [], scene = false } = {}) {
+export async function fuse(r, { ask = '', helpers = [], scene = false, recipe = '' } = {}) {
     const parts = r.parts;
+    const rc = recipe ? D.RECIPES.find(x => x.key === recipe) || null : null;
     const pk = await planKeys();
     const counts = {};
     for (const q of parts) counts[q.field || 'other'] = (counts[q.field || 'other'] || 0) + 1;
@@ -1836,7 +1872,7 @@ export async function fuse(r, { ask = '', helpers = [], scene = false } = {}) {
         try { j = await askJson(sys, usr, 1600, 'сплав', (y) => y && str(y.name)); } catch (e) { console.warn('[Ангар] сплав', e); j = null; }
         if (j && planHit(pk, j.name, j.note, j.spec, j.quirk, j.scene)) j = null;
     }
-    const fall = { name: names.join(' × '), note: `Сплав: ${names.join(' + ')}.`, spec: '', field, out: 'gadget', quirk: r.out === 'odd' ? rnd(D.QUIRKS.gadget) : '', scene: '' };
+    const fall = { name: names.join(' × '), note: rc && r.out !== 'fail' ? rc.ask.replace(/^Назови «[^»]+»\.\s*/, '') : `Сплав: ${names.join(' + ')}.`, spec: '', field, out: 'gadget', quirk: r.out === 'odd' ? rnd(D.QUIRKS.gadget) : '', scene: '' };
     const res = { ...fall, ...Object.fromEntries(Object.entries(j || {}).filter(([, v]) => str(v))) };
     const logLine = `Сплав (d20 ${r.roll} → ${r.sum}, ${r.name.toLowerCase()}): ${names.join(' + ')}`;
     const m = M();
@@ -1864,8 +1900,9 @@ export async function fuse(r, { ask = '', helpers = [], scene = false } = {}) {
     const ready = parts.every(q => q.ready);
     const st = (D.FUSE_STAGE[r.out] || [1, 1])[ready ? 0 : 1];
     const out = D.OUT_TYPES.some(o => o[0] === res.out) ? res.out : 'gadget';
-    const p = addProject({ name: cut(str(res.name), 90), field: D.FIELDS.some(f => f[0] === res.field) ? res.field : field, out, note: [str(res.note), res.quirk ? `Странность: ${str(res.quirk)}` : ''].filter(Boolean).join(' '), spec: str(res.spec), team: helpers, ty: hedyYear(), stage: st }, { src: 'fusion' });
+    const p = addProject({ name: cut(rc?.name || str(res.name), 90), field: D.FIELDS.some(f => f[0] === res.field) ? res.field : field, out, note: [str(res.note), res.quirk ? `Странность: ${str(res.quirk)}` : ''].filter(Boolean).join(' '), spec: str(res.spec), team: helpers, ty: hedyYear(), stage: st }, { src: 'fusion' });
     p.fused = names;
+    if (rc) p.recipe = rc.key;
     p.needs = parts.filter(q => q.kind === 'proj' && !q.ready).map(q => q.id);
     const mats = new Map();
     for (const q of parts) if (q.kind === 'proj') for (const x of arr(projById(q.id)?.mats)) mats.set(x.id, Math.max(mats.get(x.id) || 0, x.n));

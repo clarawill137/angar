@@ -496,6 +496,14 @@
 .ang-link { color: var(--acc); text-decoration: underline; text-underline-offset: 2px; font: inherit; padding: 0; }
 
 /* 0.4 · сплав */
+/* 0.4.2: рецепты сплавов */
+.ang-recipes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 4px; }
+.ang-recipe { display: flex; flex-direction: column; gap: 3px; padding: 9px 10px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line) !important; text-align: left; min-width: 0; }
+.ang-recipe b { display: flex; align-items: center; gap: 4px; font-size: 14px; line-height: 1.2; }
+.ang-recipe b svg { width: 14px; height: 14px; flex: none; color: var(--acc); }
+.ang-recipe small { font-size: 11.5px; line-height: 1.3; color: var(--dim); }
+.ang-recipe.on { border-color: var(--acc) !important; background: var(--accbg); }
+.ang-recipe.done:not(.on) { opacity: .75; }
 .ang-fparts { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 8px 0; }
 .ang-fpart { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 40px 10px 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line) !important; text-align: left; }
 .ang-fpart b { font-size: 15px; }

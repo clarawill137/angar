@@ -475,10 +475,11 @@ function labFuse() {
     const people = peopleList();
     const helpers = [...new Set([...people, ...F.helpers])];
     return `<div class="ang-hint">Сплав — две-три вещи в одну: проекты, идеи из инсайтов, железо, технику, костюмы. Кубик решает, насколько срослось, умная модель — что вышло. Прорыв и успех — сразу прототип, провал — урок, бабах — авария.</div>
+    ${(() => { const rs = C.recipesNow(); if (!rs.length) return ''; const cur = C.recipeOf(F.parts)?.key; return `${sec('Рецепты', String(rs.length))}<div class="ang-recipes">${rs.map(r => `<button class="ang-recipe${r.key === cur ? ' on' : ''}${r.done ? ' done' : ''}" data-g="fuseRecipe" data-v="${esc(r.key)}"><b>${esc(r.name)}${r.done ? ic('check') : ''}</b><small>${esc(r.names.join(' + '))}</small></button>`).join('')}</div>`; })()}
     <div class="ang-fparts">${parts.map((q, i) => `<div class="ang-fpart"><span class="ang-fk">${esc({ proj: 'проект', idea: 'идея', item: 'вещь', veh: 'техника', suit: 'костюм' }[q.kind])}</span><b>${esc(q.name)}</b><small>${esc([D.fieldName(q.field), q.ready ? 'работает' : q.raw ? 'идея' : 'в работе'].join(' · '))}</small><button data-g="fuseDel" data-v="${i}">${ic('x')}</button></div>`).join('')}
         ${parts.length < 3 ? `<button class="ang-fpart add" data-g="fusePick">${ic('plus')}<b>${parts.length ? 'Ещё часть' : 'Первая часть'}</b><small>${parts.length < 2 ? 'нужно минимум две' : 'можно третью — сложнее, но интереснее'}</small></button>` : ''}</div>
     ${sec('Кто помогает')}<div class="ang-chips wrap">${helpers.map(n => { const f = D.FUSE_HELP.find(h => h.re.test(n)); return `<button class="ang-chip${F.helpers.some(h => C.same(h, n)) ? ' on' : ''}" data-g="fuseHelp" data-v="${esc(n)}">${esc(C.short(n))}${f ? ` <small>+${f.v}</small>` : ''}</button>`; }).join('')}<button class="ang-chip" data-g="fuseHelpAdd">${ic('plus')}</button></div>
-    ${field('Чего хочет (необязательно)', `<input data-gf="fuse:ask" data-id="f" value="${esc(F.ask)}" placeholder="чтобы Баки мог это носить / против Вальдена / для малыша">`)}
+    ${field('Чего хочет (необязательно)', `<textarea rows="${F.ask.length > 90 ? 4 : 2}" data-gf="fuse:ask" data-id="f" placeholder="чтобы Баки мог это носить / против Вальдена / для малыша">${esc(F.ask)}</textarea>`)}
     <div class="ang-actions">${btn('fuseGo', `${ic('dice')} Сплавить на кубике`, parts.length >= 2 ? '' : 'disabled', 'primary wide')}</div>
     ${(() => { const done = C.M().projects.filter(p => p.fused?.length).slice(0, 6); return done.length ? `${sec('Уже сплавлено', String(done.length))}<div class="ang-list">${done.map(projCard).join('')}</div>` : ''; })()}`;
 }
@@ -1347,6 +1348,15 @@ const HANDLERS = {
         render(); if (ui.modal) paintModal();
     },
     fuseDel: (el) => { ui.fuse.parts.splice(Number(el.dataset.v), 1); render(); },
+    fuseRecipe: (el) => {
+        const r = C.recipesNow().find(x => x.key === el.dataset.v);
+        if (!r) return;
+        ui.fuse.parts = r.refs.map(q => ({ ...q, set: '' }));
+        ui.fuse.ask = r.ask;
+        C.toast('success', `Рецепт «${esc(r.name)}» — части в сплаве`);
+        render();
+        requestAnimationFrame(() => document.querySelector('#ang-app .ang-fparts')?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    },
     fusePick: () => {
         const has = (k, id) => ui.fuse.parts.some(q => q.kind === k && q.id === id);
         const list = [
@@ -1360,14 +1370,14 @@ const HANDLERS = {
     },
     fuseHelp: (el) => { const F = ui.fuse; const n = el.dataset.v; const i = F.helpers.findIndex(h => C.same(h, n)); if (i >= 0) F.helpers.splice(i, 1); else F.helpers.push(n); render(); },
     fuseHelpAdd: () => form('Кто помогает', [{ k: 'n', label: 'Имя', ph: 'Брюс Беннер' }], (v) => { const n = v.n.trim(); if (!n) return false; ui.fuse.helpers.push(C.canon(n)); return true; }),
-    fuseGo: () => { const parts = ui.fuse.parts.map(C.fusePart).filter(Boolean); if (parts.length < 2) { C.toast('info', 'Нужно хотя бы две части'); return; } modal('fuse', { parts, helpers: [...ui.fuse.helpers], ask: ui.fuse.ask, mods: C.fuseMods(parts, ui.fuse.helpers), own: 0, result: null, done: null }); },
+    fuseGo: () => { const parts = ui.fuse.parts.map(C.fusePart).filter(Boolean); if (parts.length < 2) { C.toast('info', 'Нужно хотя бы две части'); return; } modal('fuse', { parts, helpers: [...ui.fuse.helpers], ask: ui.fuse.ask, recipe: C.recipeOf(ui.fuse.parts)?.key || '', mods: C.fuseMods(parts, ui.fuse.helpers), own: 0, result: null, done: null }); },
     fuseRoll: () => { const d = ui.modal; if (d.rolling || d.done) return; const mods = [...d.mods]; if (d.own) mods.push({ key: 'own', label: 'своя поправка', v: d.own, on: true }); const res = C.rollFuse(d.parts, mods); d.result = null; rollAnim(d, () => { d.result = res; }); },
     fuseApply: (el) => {
         const d = ui.modal;
         if (!d?.result || d.done || busy('fuse')) return;
         const scene = el.dataset.v === 'scene';
         withBusy('fuse', async () => {
-            const res = await C.fuse(d.result, { ask: d.ask, helpers: d.helpers, scene });
+            const res = await C.fuse(d.result, { ask: d.ask, helpers: d.helpers, scene, recipe: d.recipe });
             d.done = res;
             if (res.p || res.lesson) { ui.fuse.parts = []; ui.fuse.ask = ''; }
             C.toast(res.p ? 'success' : res.boom ? 'error' : 'warning', res.p ? `Сплав: «${esc(res.p.name)}»` : res.boom ? 'Бабах в лабе' : 'Не срослось — урок в Инсайтах');

@@ -426,4 +426,54 @@ ctx.chatMetadata = {}; ctx.chat = []; date = '21.11.2024'; C.bump();
     C._setPlanKeys({ titles: [], re: null });
 }
 
+// 24. 0.4.2 — «Кошка» (давнее), идеи на Амстердам с 27.12, рецепты сплавов
+ctx.chatMetadata = {}; ctx.chat = []; date = '26.12.2024'; C.bump();
+{
+    C.seed();
+    const m = C.M();
+    const AMS = ['scarf', 'sugar', 'fogglass', 'striders', 'foam', 'jar', 'peas', 'waterkey', 'canary', 'jammer2', 'armhear'];
+    assert.ok(!m.projects.some(p => AMS.includes(p.key)), '26.12 — идей на Амстердам ещё нет');
+    const ko = m.projects.find(p => p.key === 'koshka');
+    assert.ok(ko && C.projStage(ko) === 4 && ko.idea, '«Кошка» — давно готова');
+    const sole = m.items.find(it => it.key === 'koshka');
+    assert.ok(sole && C.dyn(sole.id).slot === 'boot' && /без звука/.test(sole.gadget.does) && /Хеди/.test(sole.owner), 'подошвы — в обуви у Хеди');
+    assert.deepEqual(C.recipesNow(), [], 'рецептов до 27.12 нет');
+    date = '27.12.2024'; C.bump();
+    assert.equal(C.seed(), AMS.length, 'с 27.12 — одиннадцать идей');
+    for (const k of AMS) { const p = m.projects.find(q => q.key === k); assert.ok(p && p.idea && !p.dead, k); }
+    assert.equal(C.projStage(m.projects.find(p => p.key === 'jar')), 0, 'банка — голая идея');
+    assert.equal(C.projStage(m.projects.find(p => p.key === 'peas')), 1, 'горошины — уже теория');
+    assert.ok(m.projects.find(p => p.key === 'canary').lock, 'канарейка — секрет');
+    // «Кошка» апгрейдом: на костюм — тише, на ствол — нет
+    const sol = m.suits.find(s => s.key === 'solaris');
+    const up = C.upLab(sol).find(u => u.name === 'Подошвы «Кошка»');
+    assert.ok(up && up.focus === 'stealth', '«Кошка» на костюм — скрытность');
+    const gun = C.addItem({ name: 'ПМ', kind: 'pistol', owner: 'Хеди' });
+    assert.ok(!C.upLab(gun).some(u => u.name === 'Подошвы «Кошка»'), 'на ствол подошвы не ставятся');
+    assert.ok(!C.upLab(sol).some(u => u.name === 'Нано-генератор для мотоцикла'), 'генератор мотоцикла — только на мотоцикл');
+    // рецепты
+    const rs = C.recipesNow();
+    assert.deepEqual(rs.map(r => r.key).sort(), D.RECIPES.map(r => r.key).sort(), 'все рецепты на месте');
+    const dutch = rs.find(r => r.key === 'dutch');
+    assert.deepEqual(dutch.names, ['Ключ от воды', 'Сибирский метод', 'Браслет-гусеница']);
+    assert.equal(rs.find(r => r.key === 'solrod').refs[0].kind, 'suit', 'Солярис — костюмом');
+    assert.equal(rs.find(r => r.key === 'pulse').refs[0].kind, 'item', 'часы — вещью');
+    assert.equal(C.recipeOf([...dutch.refs].reverse())?.key, 'dutch', 'порядок частей неважен');
+    assert.equal(C.recipeOf(dutch.refs.slice(0, 2)), null, 'двух из трёх мало');
+    api.askDeepJson = async (msgs, t, o) => (/сплав/.test(o.what) ? { name: 'Шлюзовой бунт', note: 'Станция воюет за неё.', spec: 'шлюзы, насосы, свет', field: 'cyber', out: 'soft', scene: 'насосы взвыли' } : {});
+    const got = await C.fuse(C.rollFuse(dutch.refs.map(C.fusePart), [], { roll: 17 }), { ask: dutch.ask, recipe: 'dutch' });
+    assert.equal(got.p.name, 'Голландский метод', 'имя — из рецепта');
+    assert.equal(got.p.recipe, 'dutch');
+    assert.ok(C.recipesNow().find(r => r.key === 'dutch').done, 'рецепт отмечен сплавленным');
+    // модель молчит — рецепт сам описывает, что вышло
+    api.askDeepJson = async () => null;
+    const pr = C.recipesNow().find(r => r.key === 'prompter');
+    const g5 = await C.fuse(C.rollFuse(pr.refs.map(C.fusePart), [], { roll: 18 }), { ask: pr.ask, recipe: 'prompter' });
+    assert.equal(g5.p.name, 'Суфлёр');
+    assert.match(g5.p.note, /^Горошина из часов/, 'без модели — описание из рецепта');
+    m.projects.find(p => p.key === 'canary').dead = true;
+    assert.ok(!C.recipesNow().some(r => r.key === 'canarymap'), 'канарейка на кладбище — нет и рецепта');
+    date = '21.11.2024'; C.bump();
+}
+
 console.log('ангар · логика: все проверки прошли');
