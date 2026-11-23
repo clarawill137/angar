@@ -13,7 +13,7 @@ export function setApi(a) { A = a; }
 
 const ctx = () => SillyTavern.getContext();
 export const MODULE = 'angar';
-export const VERSION = '0.4.2';
+export const VERSION = '0.4.3';
 
 // ───────────── мелочи ─────────────
 
@@ -1772,6 +1772,24 @@ export async function insights(roll, { p = null, x = null, ask = '' } = {}) {
 
 const FIELD_OF_T = { gun: 'weapon', blade: 'weapon', gadget: 'tech', armor: 'tech', veh: 'space', suit: 'tech' };
 /** Ссылка на часть → {kind, id, set, name, text, field, ready, raw}. */
+// ───────────── черновик сплава (0.4.3): живёт в чате ─────────────
+// Части, кто помогает, «чего хочет» и отложенное (её сплавы, сдвинутые рецептом). Раньше черновик жил только на экране:
+// перезагрузка, обновление и тап по рецепту его теряли. src — рецепт, которым заполнено (сброс — как только правит сама).
+const FUSE_KINDS = ['proj', 'idea', 'item', 'veh', 'suit'];
+const fuseRefs = (l) => arr(l).filter(q => q && FUSE_KINDS.includes(str(q.kind)) && str(q.id)).slice(0, 3).map(q => ({ kind: str(q.kind), id: str(q.id), set: str(q.set) }));
+const fuseSnap = (d) => ({ parts: fuseRefs(d?.parts), ask: cut(str(d?.ask), 1200) });
+export function fuseDraft() {
+    const d = M().fuseDraft || {};
+    return { ...fuseSnap(d), helpers: arr(d.helpers).map(str).filter(Boolean).slice(0, 8), src: str(d.src), mine: arr(d.mine).map(fuseSnap).filter(x => x.parts.length || x.ask.trim()).slice(-5) };
+}
+export function setFuseDraft(f) {
+    if (!hasChat()) return;
+    M().fuseDraft = { ...fuseSnap(f), helpers: arr(f?.helpers).map(str).filter(Boolean).slice(0, 8), src: str(f?.src), mine: arr(f?.mine).map(fuseSnap).filter(x => x.parts.length || x.ask.trim()).slice(-5) };
+    save();
+}
+/** Её собственный черновик (не заполненный рецептом и не пустой) — его рецепт не затирает, а откладывает. */
+export const fuseOwn = (f) => !str(f?.src) && (arr(f?.parts).length > 0 || !!str(f?.ask).trim());
+
 // ───────────── рецепты сплавов (0.4.2) ─────────────
 
 /** Часть рецепта → ссылка сплава: «suit:ключ» — костюм, «veh:ключ» — техника, голый ключ — вещь с этим ключом, а нет — проект. */

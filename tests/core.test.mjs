@@ -476,4 +476,37 @@ ctx.chatMetadata = {}; ctx.chat = []; date = '26.12.2024'; C.bump();
     date = '21.11.2024'; C.bump();
 }
 
+// 25. 0.4.3 — черновик сплава живёт в чате; её сплав рецептом не затирается
+ctx.chatMetadata = {}; ctx.chat = []; date = '27.12.2024'; C.bump();
+{
+    C.seed();
+    const m = C.M();
+    assert.deepEqual(C.fuseDraft(), { parts: [], ask: '', helpers: [], src: '', mine: [] }, 'пустой черновик');
+    const watch = m.items.find(it => it.key === 'cartier'), ring = m.items.find(it => it.key === 'ring');
+    const mine = { parts: [{ kind: 'item', id: watch.id }, { kind: 'item', id: ring.id }], ask: 'чтобы Баки чувствовал её пульс', helpers: ['Тони Старк'], src: '', mine: [] };
+    assert.ok(C.fuseOwn(mine), 'её черновик — своё');
+    C.setFuseDraft(mine);
+    // как после перезагрузки: читаем из метаданных чата заново
+    const again = JSON.parse(JSON.stringify(ctx.chatMetadata));
+    ctx.chatMetadata = again; C.bump();
+    const d = C.fuseDraft();
+    assert.deepEqual(d.parts.map(q => q.id), [watch.id, ring.id], 'части пережили перезагрузку');
+    assert.equal(d.ask, 'чтобы Баки чувствовал её пульс');
+    assert.deepEqual(d.helpers, ['Тони Старк']);
+    // рецепт поверх: своё уходит в отложенное, не пропадает
+    const r = C.recipesNow().find(x => x.key === 'dutch');
+    d.mine.push({ parts: d.parts, ask: d.ask }); d.parts = r.refs; d.ask = r.ask; d.src = r.key;
+    assert.ok(!C.fuseOwn(d), 'заполненное рецептом — не своё');
+    C.setFuseDraft(d);
+    const d2 = C.fuseDraft();
+    assert.equal(d2.src, 'dutch');
+    assert.equal(d2.mine.length, 1);
+    assert.deepEqual(d2.mine[0].parts.map(q => q.id), [watch.id, ring.id], 'отложенное — её части');
+    assert.equal(d2.mine[0].ask, 'чтобы Баки чувствовал её пульс', 'и её текст');
+    // мусор не проходит: чужие виды, больше трёх частей
+    C.setFuseDraft({ parts: [{ kind: 'x', id: '1' }, { kind: 'item', id: 'a' }, { kind: 'item', id: 'b' }, { kind: 'item', id: 'c' }, { kind: 'item', id: 'd' }], ask: 5 });
+    assert.deepEqual(C.fuseDraft().parts.map(q => q.id), ['a', 'b', 'c']);
+    date = '21.11.2024'; C.bump();
+}
+
 console.log('ангар · логика: все проверки прошли');

@@ -504,6 +504,9 @@
 .ang-recipe small { font-size: 11.5px; line-height: 1.3; color: var(--dim); }
 .ang-recipe.on { border-color: var(--acc) !important; background: var(--accbg); }
 .ang-recipe.done:not(.on) { opacity: .75; }
+/* 0.4.3: «Вернуть моё» — длинный список частей переносится, а не уезжает за край */
+.ang-btn.ang-fmine { white-space: normal; justify-content: flex-start; text-align: left; line-height: 1.3; min-width: 0; max-width: 100%; }
+.ang-btn.ang-fmine small { font-weight: 500; color: var(--dim); }
 .ang-fparts { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 8px 0; }
 .ang-fpart { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 40px 10px 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line) !important; text-align: left; }
 .ang-fpart b { font-size: 15px; }

@@ -8,8 +8,12 @@ const esc = C.esc;
 const ui = {
     hall: 'arm', sub: { arm: 'people', lab: 'proj', gar: 'all', suit: 'all' }, who: '', modal: null, busy: new Set(),
     shop: { src: '', cat: 'all', ask: '' }, wall: 'guns', scroll: {}, zone: '', story: null, kit: null,
-    fuse: { parts: [], helpers: [], ask: '' },
+    fuse: { parts: [], helpers: [], ask: '', src: '', mine: [] },
 };
+// Черновик сплава — из чата (0.4.3): правка сразу сохраняется, смена чата и перезагрузка его не теряют.
+const fuseNow = () => (ui.fuse = C.fuseDraft());
+const fuseSave = () => C.setFuseDraft(ui.fuse);
+const fuseNames = (snap) => snap.parts.map(C.fusePart).filter(Boolean).map(q => q.name);
 
 // ───────────── значки (свои, линейные) ─────────────
 
@@ -456,7 +460,7 @@ function labPoly() {
     <div class="ang-list">${list.map(it => `<div class="ang-row">${kic(it.kind)}<div><b>${esc(it.name)}</b><small>${esc(C.short(it.owner))} · надёжность ${'●'.repeat(it.gadget.reliab)}${'○'.repeat(5 - it.gadget.reliab)}${it.gadget.proto ? ' · прототип' : ''}</small></div>${btn('proto', `${ic('dice')} Испытать`, attr({ id: it.id }), 'sm')}</div>`).join('') || empty('Гаджетов нет. Готовый проект → «Выпустить» — и он здесь.')}</div>`;
 }
 function ideaHtml(y, set, extra = '') {
-    const inFuse = ui.fuse.parts.some(q => q.kind === 'idea' && q.id === y.id);
+    const inFuse = fuseNow().parts.some(q => q.kind === 'idea' && q.id === y.id);
     return `<div class="ang-idea${y.used ? ' used' : ''}"><b>${esc(y.title)}</b><p>${esc(y.text)}</p>${y.scene ? `<p class="ang-idea-sc">${esc(y.scene)}</p>` : ''}${y.cost || y.base ? `<small class="ang-idea-c">${esc([y.cost ? `цена: ${y.cost}` : '', y.base ? `на основе: ${y.base}` : ''].filter(Boolean).join(' · '))}</small>` : ''}
         ${y.used ? '<small>в работе</small>' : `<div class="ang-row">${btn('ideaProj', `${ic('plus')} В проекты`, attr({ set, id: y.id }), 'sm')}${btn('fuseAdd', inFuse ? `${ic('check')} в сплаве` : `${ic('merge')} В сплав`, attr({ kind: 'idea', set, id: y.id }), 'sm ghost')}${extra}</div>`}</div>`;
 }
@@ -469,13 +473,16 @@ function labIdeas() {
 }
 // Сплав: верстак — части, кто помогает, чего хочет; дальше кубик в листе
 function labFuse() {
-    const F = ui.fuse;
+    const F = fuseNow();
     const parts = F.parts.map(C.fusePart).filter(Boolean);
-    if (parts.length !== F.parts.length) F.parts = F.parts.filter(r => C.fusePart(r));
+    if (parts.length !== F.parts.length) { F.parts = F.parts.filter(r => C.fusePart(r)); fuseSave(); }
+    const back = F.mine[F.mine.length - 1];
+    const backLine = back ? (fuseNames(back).join(', ') || C.cut(back.ask, 40)) : '';
     const people = peopleList();
     const helpers = [...new Set([...people, ...F.helpers])];
     return `<div class="ang-hint">Сплав — две-три вещи в одну: проекты, идеи из инсайтов, железо, технику, костюмы. Кубик решает, насколько срослось, умная модель — что вышло. Прорыв и успех — сразу прототип, провал — урок, бабах — авария.</div>
     ${(() => { const rs = C.recipesNow(); if (!rs.length) return ''; const cur = C.recipeOf(F.parts)?.key; return `${sec('Рецепты', String(rs.length))}<div class="ang-recipes">${rs.map(r => `<button class="ang-recipe${r.key === cur ? ' on' : ''}${r.done ? ' done' : ''}" data-g="fuseRecipe" data-v="${esc(r.key)}"><b>${esc(r.name)}${r.done ? ic('check') : ''}</b><small>${esc(r.names.join(' + '))}</small></button>`).join('')}</div>`; })()}
+    ${back ? `<div class="ang-actions">${btn('fuseMine', `↩ Вернуть моё: ${esc(C.cut(backLine, 70))}${F.mine.length > 1 ? ` <small>(ещё ${F.mine.length - 1})</small>` : ''}`, '', 'ghost wide ang-fmine')}</div>` : ''}
     <div class="ang-fparts">${parts.map((q, i) => `<div class="ang-fpart"><span class="ang-fk">${esc({ proj: 'проект', idea: 'идея', item: 'вещь', veh: 'техника', suit: 'костюм' }[q.kind])}</span><b>${esc(q.name)}</b><small>${esc([D.fieldName(q.field), q.ready ? 'работает' : q.raw ? 'идея' : 'в работе'].join(' · '))}</small><button data-g="fuseDel" data-v="${i}">${ic('x')}</button></div>`).join('')}
         ${parts.length < 3 ? `<button class="ang-fpart add" data-g="fusePick">${ic('plus')}<b>${parts.length ? 'Ещё часть' : 'Первая часть'}</b><small>${parts.length < 2 ? 'нужно минимум две' : 'можно третью — сложнее, но интереснее'}</small></button>` : ''}</div>
     ${sec('Кто помогает')}<div class="ang-chips wrap">${helpers.map(n => { const f = D.FUSE_HELP.find(h => h.re.test(n)); return `<button class="ang-chip${F.helpers.some(h => C.same(h, n)) ? ' on' : ''}" data-g="fuseHelp" data-v="${esc(n)}">${esc(C.short(n))}${f ? ` <small>+${f.v}</small>` : ''}</button>`; }).join('')}<button class="ang-chip" data-g="fuseHelpAdd">${ic('plus')}</button></div>
@@ -1340,24 +1347,51 @@ const HANDLERS = {
     // сплав
     fuseAdd: (el) => {
         const ref = { kind: el.dataset.kind, id: el.dataset.id, set: el.dataset.set || '' };
-        const F = ui.fuse;
+        const F = fuseNow();
         const i = F.parts.findIndex(q => q.kind === ref.kind && q.id === ref.id);
         if (i >= 0) { F.parts.splice(i, 1); C.toast('info', 'Убрано из сплава'); }
         else if (F.parts.length >= 3) { C.toast('warning', 'В сплаве уже три части — больше нельзя'); return; }
         else { F.parts.push(ref); C.toast('success', `В сплаве: ${F.parts.length} из 3 — Лаба → Сплав`); }
+        F.src = '';
+        fuseSave();
         render(); if (ui.modal) paintModal();
     },
-    fuseDel: (el) => { ui.fuse.parts.splice(Number(el.dataset.v), 1); render(); },
+    fuseDel: (el) => { const F = fuseNow(); F.parts.splice(Number(el.dataset.v), 1); F.src = ''; fuseSave(); render(); },
+    // Рецепт её сплав не затирает: своё уходит в «отложенное» (кнопка «Вернуть моё»); тот же рецепт ещё раз — снять.
     fuseRecipe: (el) => {
         const r = C.recipesNow().find(x => x.key === el.dataset.v);
         if (!r) return;
-        ui.fuse.parts = r.refs.map(q => ({ ...q, set: '' }));
-        ui.fuse.ask = r.ask;
-        C.toast('success', `Рецепт «${esc(r.name)}» — части в сплаве`);
+        const F = fuseNow();
+        if (F.src === r.key && C.recipeOf(F.parts)?.key === r.key) {
+            const back = F.mine.pop();
+            F.parts = back?.parts || []; F.ask = back?.ask || ''; F.src = '';
+            fuseSave();
+            C.toast('info', back ? 'Рецепт снят — твой сплав вернулся' : 'Рецепт снят');
+            render();
+            return;
+        }
+        const own = C.fuseOwn(F);
+        if (own) F.mine.push({ parts: F.parts.map(q => ({ ...q })), ask: F.ask });
+        F.parts = r.refs.map(q => ({ ...q, set: '' }));
+        F.ask = r.ask;
+        F.src = r.key;
+        fuseSave();
+        C.toast('success', own ? `Рецепт «${esc(r.name)}» в сплаве. Твоё отложено — «Вернуть моё» вернёт` : `Рецепт «${esc(r.name)}» — части в сплаве`);
         render();
         requestAnimationFrame(() => document.querySelector('#ang-app .ang-fparts')?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
     },
+    fuseMine: () => {
+        const F = fuseNow();
+        const back = F.mine.pop();
+        if (!back) return;
+        if (C.fuseOwn(F)) F.mine.unshift({ parts: F.parts.map(q => ({ ...q })), ask: F.ask });   // своё на экране тоже не теряем
+        F.parts = back.parts; F.ask = back.ask; F.src = '';
+        fuseSave();
+        C.toast('info', 'Твой сплав вернулся');
+        render();
+    },
     fusePick: () => {
+        fuseNow();
         const has = (k, id) => ui.fuse.parts.some(q => q.kind === k && q.id === id);
         const list = [
             ...C.projectsNow().filter(p => !p.dead && !has('proj', p.id)).map(p => ({ ico: 'flask', t: p.name, s: `проект · ${D.STAGES[C.projStage(p)]} · ${D.fieldName(p.field)}`, ref: { kind: 'proj', id: p.id } })),
@@ -1366,11 +1400,11 @@ const HANDLERS = {
             ...C.M().vehicles.filter(v => !has('veh', v.id)).map(v => ({ ico: D.vkindOf(v.kind)[2], t: v.name, s: 'техника', ref: { kind: 'veh', id: v.id } })),
             ...C.M().suits.filter(x => !has('suit', x.id)).map(x => ({ ico: 'shield', t: x.name, s: `костюм · ${C.short(x.who)}`, ref: { kind: 'suit', id: x.id } })),
         ];
-        pick('Часть для сплава', list, (x) => { if (x.ref) ui.fuse.parts.push(x.ref); closeModal(); }, { hint: 'Проекты, идеи из инсайтов, железо, техника, костюмы — до трёх частей.', none: 'Нечего сплавлять: заведи проект или брось кубик инсайтов.' });
+        pick('Часть для сплава', list, (x) => { if (x.ref) { const F = fuseNow(); if (F.parts.length < 3) F.parts.push(x.ref); F.src = ''; fuseSave(); } closeModal(); }, { hint: 'Проекты, идеи из инсайтов, железо, техника, костюмы — до трёх частей.', none: 'Нечего сплавлять: заведи проект или брось кубик инсайтов.' });
     },
-    fuseHelp: (el) => { const F = ui.fuse; const n = el.dataset.v; const i = F.helpers.findIndex(h => C.same(h, n)); if (i >= 0) F.helpers.splice(i, 1); else F.helpers.push(n); render(); },
-    fuseHelpAdd: () => form('Кто помогает', [{ k: 'n', label: 'Имя', ph: 'Брюс Беннер' }], (v) => { const n = v.n.trim(); if (!n) return false; ui.fuse.helpers.push(C.canon(n)); return true; }),
-    fuseGo: () => { const parts = ui.fuse.parts.map(C.fusePart).filter(Boolean); if (parts.length < 2) { C.toast('info', 'Нужно хотя бы две части'); return; } modal('fuse', { parts, helpers: [...ui.fuse.helpers], ask: ui.fuse.ask, recipe: C.recipeOf(ui.fuse.parts)?.key || '', mods: C.fuseMods(parts, ui.fuse.helpers), own: 0, result: null, done: null }); },
+    fuseHelp: (el) => { const F = fuseNow(); const n = el.dataset.v; const i = F.helpers.findIndex(h => C.same(h, n)); if (i >= 0) F.helpers.splice(i, 1); else F.helpers.push(n); fuseSave(); render(); },
+    fuseHelpAdd: () => form('Кто помогает', [{ k: 'n', label: 'Имя', ph: 'Брюс Беннер' }], (v) => { const n = v.n.trim(); if (!n) return false; const F = fuseNow(); F.helpers.push(C.canon(n)); fuseSave(); return true; }),
+    fuseGo: () => { fuseNow(); const parts = ui.fuse.parts.map(C.fusePart).filter(Boolean); if (parts.length < 2) { C.toast('info', 'Нужно хотя бы две части'); return; } modal('fuse', { parts, helpers: [...ui.fuse.helpers], ask: ui.fuse.ask, recipe: C.recipeOf(ui.fuse.parts)?.key || '', mods: C.fuseMods(parts, ui.fuse.helpers), own: 0, result: null, done: null }); },
     fuseRoll: () => { const d = ui.modal; if (d.rolling || d.done) return; const mods = [...d.mods]; if (d.own) mods.push({ key: 'own', label: 'своя поправка', v: d.own, on: true }); const res = C.rollFuse(d.parts, mods); d.result = null; rollAnim(d, () => { d.result = res; }); },
     fuseApply: (el) => {
         const d = ui.modal;
@@ -1379,7 +1413,13 @@ const HANDLERS = {
         withBusy('fuse', async () => {
             const res = await C.fuse(d.result, { ask: d.ask, helpers: d.helpers, scene, recipe: d.recipe });
             d.done = res;
-            if (res.p || res.lesson) { ui.fuse.parts = []; ui.fuse.ask = ''; }
+            if (res.p || res.lesson) {
+                // сплав по рецепту готов — её отложенный сплав возвращается; свой — черновик чистый
+                const F = fuseNow();
+                const back = d.recipe ? F.mine.pop() : null;
+                F.parts = back?.parts || []; F.ask = back?.ask || ''; F.src = '';
+                fuseSave();
+            }
             C.toast(res.p ? 'success' : res.boom ? 'error' : 'warning', res.p ? `Сплав: «${esc(res.p.name)}»` : res.boom ? 'Бабах в лабе' : 'Не срослось — урок в Инсайтах');
             upd();
         });
@@ -1471,7 +1511,7 @@ export function onChange(e) {
     if (ent === 'shop') { ui.shop.ask = v; return; }
     if (ent === 'ins') { if (ui.modal) ui.modal.ask = v; return; }
     if (ent === 'kit') { if (ui.kit) ui.kit.ask = v; return; }
-    if (ent === 'fuse') { ui.fuse.ask = v; return; }
+    if (ent === 'fuse') { const F = fuseNow(); if (F.ask !== v) { F.ask = v; F.src = ''; fuseSave(); } return; }
 }
 export function onInput(e) {
     const el = e.target;
@@ -1481,7 +1521,7 @@ export function onInput(e) {
     if (f === 'ins:ask' && ui.modal) ui.modal.ask = el.value;
     if (f === 'table:note') C.M().table.note = el.value;
     if (f === 'kit:ask' && ui.kit) ui.kit.ask = el.value;
-    if (f === 'fuse:ask') ui.fuse.ask = el.value;
+    if (f === 'fuse:ask') { const F = fuseNow(); if (F.ask !== el.value) { F.ask = el.value; F.src = ''; fuseSave(); } }
 }
 async function upload(el) {
     const file = el.files?.[0];
