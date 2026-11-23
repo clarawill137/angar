@@ -8,12 +8,13 @@ const esc = C.esc;
 const ui = {
     hall: 'arm', sub: { arm: 'people', lab: 'proj', gar: 'all', suit: 'all' }, who: '', modal: null, busy: new Set(),
     shop: { src: '', cat: 'all', ask: '' }, wall: 'guns', scroll: {}, zone: '', story: null, kit: null,
+    fuse: { parts: [], helpers: [], ask: '' },
 };
 
 // ───────────── значки (свои, линейные) ─────────────
 
 const P = {
-    x: '<path d="M6 6l12 12M18 6 6 18"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', check: '<path d="m5 12 5 5 9-10"/>',
+    x: '<path d="M6 6l12 12M18 6 6 18"/>', up: '<path d="M12 19V6M6.5 11.5 12 6l5.5 5.5"/><path d="M5 21h14"/>', merge: '<path d="M6 3v5a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"/><path d="M12 14v7M9 18l3 3 3-3"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', check: '<path d="m5 12 5 5 9-10"/>',
     trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>', pencil: '<path d="M4 20l4-1 11-11-3-3L5 16l-1 4Z"/>',
     wand: '<path d="M4 20 15 9M14 4v3M19 9h-3M17.5 5.5l-2 2M18 13l1 1M11 3l1 1"/>', camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4Z"/><circle cx="12" cy="13" r="3.5"/>',
     sparkles: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z"/><path d="M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7Z"/>',
@@ -226,7 +227,7 @@ function itemCard(it, opts = {}) {
     const state = s.state === 'jammed' ? chip('клин', 'bad') : s.state === 'dropped' ? chip('брошен', 'warn') : s.state === 'lost' ? chip('потерян', 'bad') : s.state === 'broken' ? chip('сломан', 'bad') : '';
     return `<button class="ang-card it${C.empty(it, s) ? ' dry' : ''}${s.hands ? ' hand' : ''}" data-g="item" data-id="${esc(it.id)}">
         ${thumb(it.img, kic(it.kind))}
-        <div class="ang-card-m"><div class="ang-card-h"><b>${esc(it.name)}</b>${state}</div>
+        <div class="ang-card-m"><div class="ang-card-h"><b>${esc(it.name)}</b>${state}${C.arr(it.ups).length ? chip(`⬆${it.ups.length}`, 'up') : ''}</div>
         <small>${esc([it.model && it.model !== it.name ? it.model : '', it.caliber, opts.owner ? C.short(s.holder || it.owner) : '', where].filter(Boolean).join(' · '))}</small>
         ${gun ? `<div class="ang-ammo">${ammoDots(it, s)}<em>${esc(C.ammoLine(it, s))}</em></div>` : it.gadget?.max ? `<div class="ang-ammo">${bar(s.charges / it.gadget.max * 100, 'zap')}<em>${esc(C.ammoLine(it, s))}</em></div>` : C.ammoLine(it, s) ? `<div class="ang-ammo"><em>${esc(C.ammoLine(it, s))}</em></div>` : ''}
         </div></button>`;
@@ -379,16 +380,29 @@ function garHtml() {
     <div class="ang-garage">${list.map(card).join('') || empty('Гараж пуст. Добавь машину, купи или подтяни из истории.')}</div>`;
 }
 
+// ───────────── апгрейды: блок в листе вещи, техники, костюма ─────────────
+
+function upBlock(x, title = 'Апгрейды') {
+    const t = C.upType(x);
+    if (!t) return '';
+    const v = C.valueOf(x);
+    const ups = C.arr(x.ups);
+    const val = t === 'suit' ? '' : `<span class="ang-val">${ic('coin')}<b>${v.priceless && !v.ups ? 'бесценно' : esc(C.money(v.total))}</b>${v.ups ? `<small>${v.priceless ? 'бесценно' : `база ${esc(C.money(v.base))}`} + апгрейды ${esc(C.money(v.ups))}</small>` : '<small>ценность</small>'}</span>`;
+    return `${sec(title, String(ups.length))}
+    ${ups.length ? `<div class="ang-ups">${ups.map(u => `<div class="ang-up out-${esc(u.out)}"><span class="ang-up-i">${ic(u.pid ? 'flask' : 'wrench')}</span><div><b>${esc(u.name)}</b><small>${esc([C.recLine(u, t), u.by ? `ставил ${C.short(u.by)}` : '', u.val ? `+${C.money(u.val)}` : ''].filter(Boolean).join(' · '))}</small>${u.quirk ? `<em>${esc(u.quirk)}</em>` : ''}</div><button class="ang-up-x" data-g="upDel" data-id="${esc(x.id)}" data-v="${esc(u.id)}" title="Снять">${ic('x')}</button></div>`).join('')}</div>` : ''}
+    <div class="ang-uprow">${btn('upOpen', `${ic('up')} Улучшить на кубике`, attr({ id: x.id }), 'sm primary')}${val}</div>`;
+}
+
 // ───────────── Лаба ─────────────
 
-const LAB_SUBS = [['proj', 'Проекты', 'flask'], ['tree', 'Дерево', 'tree'], ['chron', 'Хроника', 'clock'], ['mats', 'Материалы', 'gem'], ['poly', 'Полигон', 'target'], ['ideas', 'Инсайты', 'sparkles'], ['grave', 'Кладбище', 'grave']];
+const LAB_SUBS = [['proj', 'Проекты', 'flask'], ['fuse', 'Сплав', 'merge'], ['ideas', 'Инсайты', 'sparkles'], ['tree', 'Дерево', 'tree'], ['chron', 'Хроника', 'clock'], ['mats', 'Материалы', 'gem'], ['poly', 'Полигон', 'target'], ['grave', 'Кладбище', 'grave']];
 function labHtml() {
     const sub = ui.sub.lab || 'proj';
     const e = C.era();
     const pg = C.pregnant();
     const top = `<div class="ang-labhead"><b>${esc(D.LAB_NAME[e.id] || 'Лаборатория')}</b>${pg ? `<small>${ic('alert')} беременность: ${esc(pg.text)} — опасное медленнее, Амара против</small>` : ''}</div>
     <div class="ang-actions">${btn('insight', `${ic('dice')} Кубик инсайтов`, '', 'primary')}${btn('newProj', ic('plus'), 'title="Новый проект"', 'ico')}${btn('story', busy('story:lab') ? spin : `${ic('scroll')} Изобретения из истории`, 'data-v="lab"', 'ghost')}</div>`;
-    const body = { proj: labProj, tree: labTree, chron: labChron, mats: labMats, poly: labPoly, ideas: labIdeas, grave: labGrave }[sub]();
+    const body = { proj: labProj, fuse: labFuse, tree: labTree, chron: labChron, mats: labMats, poly: labPoly, ideas: labIdeas, grave: labGrave }[sub]();
     return `${top}${subsNav(LAB_SUBS, sub)}${suggestRow(['lab'])}${body}`;
 }
 function stageDots(p, g = '') {
@@ -429,7 +443,7 @@ function labChron() {
     const list = [...C.M().projects].filter(p => !(Number(p.ty) > C.hedyYear() + 0.001)).sort((a, b) => (Number(a.ty) || 0) - (Number(b.ty) || 0));
     let lastY = null;
     return `<div class="ang-hint">Всё, что Хеди придумала, — по годам её жизни. В 1940-е она попала из 2020-го, поэтому прибор 1945-го стоит после Скачка.</div>
-    <div class="ang-chron">${list.map(p => { const y = Math.floor(Number(p.ty) || 0); const head = y !== lastY ? `<div class="ang-year">${y || '—'}</div>` : ''; lastY = y; return `${head}<button class="ang-ev${p.dead ? ' dead' : ''}" data-g="proj" data-id="${esc(p.id)}"><i></i><div><b>${esc(p.name)}</b><small>${esc([p.y && Math.floor(p.y) !== y ? `календарный ${Math.floor(p.y)}` : '', D.fieldName(p.field), p.dead ? `☠ ${C.cut(p.deadWhy, 60)}` : D.STAGES[C.projStage(p)]].filter(Boolean).join(' · '))}</small></div></button>`; }).join('') || empty('Пусто.')}</div>`;
+    <div class="ang-chron">${list.map(p => { const y = Math.floor(Number(p.ty) || 0); const head = y !== lastY ? `<div class="ang-year">${y || '—'}</div>` : ''; lastY = y; return `${head}<button class="ang-ev${p.dead ? ' dead' : ''}" data-g="proj" data-id="${esc(p.id)}"><i></i><div><b>${esc(p.name)}</b><small>${esc([p.y && Math.floor(p.y) !== y ? `календарный ${Math.floor(p.y)}` : '', D.fieldName(p.field), p.dead ? `☠ ${C.cut(p.deadWhy, 60)}` : D.STAGES[C.projStage(p)], p.idea || p.src === 'idea' ? 'придумано' : '', p.fused?.length ? 'сплав' : ''].filter(Boolean).join(' · '))}</small></div></button>`; }).join('') || empty('Пусто.')}</div>`;
 }
 function labMats() {
     const list = C.M().materials;
@@ -441,10 +455,32 @@ function labPoly() {
     return `<div class="ang-hint">Испытать гаджет: кубик против надёжности. Прототип может отказать — или громко.</div>
     <div class="ang-list">${list.map(it => `<div class="ang-row">${kic(it.kind)}<div><b>${esc(it.name)}</b><small>${esc(C.short(it.owner))} · надёжность ${'●'.repeat(it.gadget.reliab)}${'○'.repeat(5 - it.gadget.reliab)}${it.gadget.proto ? ' · прототип' : ''}</small></div>${btn('proto', `${ic('dice')} Испытать`, attr({ id: it.id }), 'sm')}</div>`).join('') || empty('Гаджетов нет. Готовый проект → «Выпустить» — и он здесь.')}</div>`;
 }
+function ideaHtml(y, set, extra = '') {
+    const inFuse = ui.fuse.parts.some(q => q.kind === 'idea' && q.id === y.id);
+    return `<div class="ang-idea${y.used ? ' used' : ''}"><b>${esc(y.title)}</b><p>${esc(y.text)}</p>${y.scene ? `<p class="ang-idea-sc">${esc(y.scene)}</p>` : ''}${y.cost || y.base ? `<small class="ang-idea-c">${esc([y.cost ? `цена: ${y.cost}` : '', y.base ? `на основе: ${y.base}` : ''].filter(Boolean).join(' · '))}</small>` : ''}
+        ${y.used ? '<small>в работе</small>' : `<div class="ang-row">${btn('ideaProj', `${ic('plus')} В проекты`, attr({ set, id: y.id }), 'sm')}${btn('fuseAdd', inFuse ? `${ic('check')} в сплаве` : `${ic('merge')} В сплав`, attr({ kind: 'idea', set, id: y.id }), 'sm ghost')}${extra}</div>`}</div>`;
+}
+const GENRE_HINT = () => [...D.INSIGHT].reverse().map((g, i, a) => { const hi = (i + 1 < a.length ? a[i + 1].min : 21) - 1; return `${g.min === hi ? g.min : `${g.min}–${hi}`} ${g.name.toLowerCase()}`; }).join(' · ');
 function labIdeas() {
     const list = C.M().insights;
-    return `<div class="ang-list">${list.map(x => `<div class="ang-box"><div class="ang-box-h">${ic('sparkles')}<b>${esc(D.INSIGHT.find(g => g.id === x.kind)?.name || 'Инсайт')} · d20 ${x.roll}</b><small>${esc([x.for, x.at].filter(Boolean).join(' · '))}</small></div>
-        ${x.ideas.map(y => `<div class="ang-idea${y.used ? ' used' : ''}"><b>${esc(y.title)}</b><p>${esc(y.text)}</p>${y.used ? '<small>в проектах</small>' : btn('ideaProj', `${ic('plus')} В проекты`, attr({ set: x.id, id: y.id }), 'sm ghost')}</div>`).join('')}</div>`).join('') || empty('Бросков ещё не было.')}</div>`;
+    return `<div class="ang-hint">d20: ${esc(GENRE_HINT())}. Идею — в проекты или в сплав с другой.</div>
+    <div class="ang-list">${list.map(x => `<div class="ang-box"><div class="ang-box-h">${ic(x.kind === 'fuse' ? 'merge' : 'sparkles')}<b>${esc(x.kind === 'fuse' ? 'Урок сплава' : D.INSIGHT.find(g => g.id === x.kind)?.name || 'Инсайт')} · d20 ${x.roll}</b><small>${esc([x.for, x.at].filter(Boolean).join(' · '))}</small></div>
+        ${x.ideas.map(y => ideaHtml(y, x.id)).join('')}</div>`).join('') || empty('Бросков ещё не было.')}</div>`;
+}
+// Сплав: верстак — части, кто помогает, чего хочет; дальше кубик в листе
+function labFuse() {
+    const F = ui.fuse;
+    const parts = F.parts.map(C.fusePart).filter(Boolean);
+    if (parts.length !== F.parts.length) F.parts = F.parts.filter(r => C.fusePart(r));
+    const people = peopleList();
+    const helpers = [...new Set([...people, ...F.helpers])];
+    return `<div class="ang-hint">Сплав — две-три вещи в одну: проекты, идеи из инсайтов, железо, технику, костюмы. Кубик решает, насколько срослось, умная модель — что вышло. Прорыв и успех — сразу прототип, провал — урок, бабах — авария.</div>
+    <div class="ang-fparts">${parts.map((q, i) => `<div class="ang-fpart"><span class="ang-fk">${esc({ proj: 'проект', idea: 'идея', item: 'вещь', veh: 'техника', suit: 'костюм' }[q.kind])}</span><b>${esc(q.name)}</b><small>${esc([D.fieldName(q.field), q.ready ? 'работает' : q.raw ? 'идея' : 'в работе'].join(' · '))}</small><button data-g="fuseDel" data-v="${i}">${ic('x')}</button></div>`).join('')}
+        ${parts.length < 3 ? `<button class="ang-fpart add" data-g="fusePick">${ic('plus')}<b>${parts.length ? 'Ещё часть' : 'Первая часть'}</b><small>${parts.length < 2 ? 'нужно минимум две' : 'можно третью — сложнее, но интереснее'}</small></button>` : ''}</div>
+    ${sec('Кто помогает')}<div class="ang-chips wrap">${helpers.map(n => { const f = D.FUSE_HELP.find(h => h.re.test(n)); return `<button class="ang-chip${F.helpers.some(h => C.same(h, n)) ? ' on' : ''}" data-g="fuseHelp" data-v="${esc(n)}">${esc(C.short(n))}${f ? ` <small>+${f.v}</small>` : ''}</button>`; }).join('')}<button class="ang-chip" data-g="fuseHelpAdd">${ic('plus')}</button></div>
+    ${field('Чего хочет (необязательно)', `<input data-gf="fuse:ask" data-id="f" value="${esc(F.ask)}" placeholder="чтобы Баки мог это носить / против Вальдена / для малыша">`)}
+    <div class="ang-actions">${btn('fuseGo', `${ic('dice')} Сплавить на кубике`, parts.length >= 2 ? '' : 'disabled', 'primary wide')}</div>
+    ${(() => { const done = C.M().projects.filter(p => p.fused?.length).slice(0, 6); return done.length ? `${sec('Уже сплавлено', String(done.length))}<div class="ang-list">${done.map(projCard).join('')}</div>` : ''; })()}`;
 }
 function labGrave() {
     const list = C.projectsNow().filter(p => p.dead);
@@ -510,7 +546,7 @@ function paintModal() {
     try {
         html = {
             item: itemSheet, veh: vehSheet, suit: suitSheet, proj: projSheet, good: goodSheet, kit: kitSheet, story: storySheet,
-            insight: insightSheet, exp: expSheet, proto: protoSheet, pick: pickSheet, form: formSheet, zoom: zoomSheet,
+            insight: insightSheet, exp: expSheet, proto: protoSheet, pick: pickSheet, form: formSheet, zoom: zoomSheet, up: upSheet, fuse: fuseSheet,
         }[ui.modal.kind]?.() || '';
     } catch (err) { console.error('[Ангар] лист', err); html = `<div class="ang-sheet">${empty(`Лист упал: ${esc(err?.message || err)}`)}${btn('closeModal', 'Закрыть')}</div>`; }
     box.innerHTML = `<div class="ang-shade" data-g="closeModal"></div>${html}`;
@@ -567,11 +603,12 @@ function itemSheet() {
     ${it.legend ? `${sec('Легенда')}<div class="ang-grid2">${field('Имя по документам', inp('it', id, 'legend.alias', it.legend.alias, 'Анна Ковальчик'))}${field('Гражданство', inp('it', id, 'legend.nation', it.legend.nation, 'Польша'))}</div>${field('Документы', inp('it', id, 'legend.docs', it.legend.docs, 'паспорт, права, пресс-карта'))}${field('Прикрытие', inp('it', id, 'legend.cover', it.legend.cover, 'журналистка, едет на конференцию'))}<div class="ang-row">${btn('burn', it.legend.burned ? `${ic('refresh')} Отмыть легенду` : `${ic('alert')} Сгорела`, attr({ id }), it.legend.burned ? 'sm' : 'sm danger')}</div>` : ''}
     ${it.disguise ? `${sec('Маскировка')}${field('Из чего', inp('it', id, 'disguise.parts', it.disguise.parts, 'парик, линзы, грим'))}${field('Как выглядит', inp('it', id, 'disguise.look', it.disguise.look, 'рыжая, очки, родинка'))}` : ''}
     ${Object.keys(it.stats || {}).length ? `${sec('Характеристика')}<div class="ang-stats">${Object.entries(STAT_LABEL).filter(([k]) => it.stats[k]).map(([k, l]) => statRow(l, it.stats[k])).join('')}${['weight', 'eff', 'rate'].filter(k => it.stats[k]).map(k => `<div class="ang-stat"><span>${{ weight: 'вес', eff: 'прицельно', rate: 'режим' }[k]}</span><b>${esc(it.stats[k])}</b></div>`).join('')}</div>` : ''}
+    ${upBlock(it)}
     ${field('Моды', inp('it', id, 'mods', it.mods.join(', '), 'глушитель, коллиматор'))}
     ${field('Описание', area('it', id, 'desc', it.desc, 'что это, каково в руке', 3))}
     ${it.why ? field('Почему ему', area('it', id, 'why', it.why, 'навык, привычка, характер', 2)) : ''}
     ${field('История вещи', area('it', id, 'story', it.story, 'откуда, чья была, что с ней было', 2))}
-    <div class="ang-row end">${it.price ? chip(`цена ${it.price}`) : ''}${it.from ? chip(it.from) : ''}${btn('delItem', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
+    <div class="ang-row end">${it.price ? chip(`цена ${it.price}`) : ''}${it.from ? chip(it.from) : ''}${btn('fuseAdd', `${ic('merge')} В сплав`, attr({ kind: 'item', id }), 'sm ghost')}${btn('delItem', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
 }
 
 function vehSheet() {
@@ -606,7 +643,8 @@ function vehSheet() {
     <div class="ang-row wrap">${btn('plates', `${ic('swap')} Сменить номера`, attr({ id }), 'sm ghost')}${btn('burnV', '−засветка', attr({ id, v: -25 }), 'sm ghost')}${btn('burnV', '+засветка', attr({ id, v: 25 }), 'sm ghost')}</div>
     ${sec('Характеристика')}<div class="ang-stats">${statRow('скорость', v.stats.speed)}${statRow('управляемость', v.stats.handling)}${statRow('броня', v.stats.armor)}<div class="ang-stat"><span>мест</span><b>${v.stats.seats}</b></div><div class="ang-stat"><span>запас хода</span><b>${v.stats.range} км</b></div></div>
     <div class="ang-grid2">${['speed', 'handling', 'armor'].map(k => field({ speed: 'Скорость', handling: 'Управляемость', armor: 'Броня' }[k], sel('v', id, `stats.${k}`, v.stats[k], [1, 2, 3, 4, 5].map(n => [n, '●'.repeat(n)])))).join('')}${field('Запас хода, км', inp('v', id, 'stats.range', v.stats.range, '600', 'number'))}</div>
-    ${sec('Тюнинг', String(v.mods.length))}<div class="ang-row wrap">${v.mods.map((x, i) => `<span class="ang-chip">${esc(x.name)}${x.from ? ` <small>${esc(x.from)}</small>` : ''}<button data-g="vmodDel" data-id="${esc(id)}" data-v="${i}">${ic('x')}</button></span>`).join('')}${btn('vmodAdd', `${ic('plus')} мод`, attr({ id }), 'sm ghost')}${btn('insightFor', `${ic('dice')} Инсайт`, attr({ id }), 'sm ghost')}</div>
+    ${upBlock(v, 'Тюнинг')}
+    <div class="ang-row wrap">${v.mods.map((x, i) => (x.up ? '' : `<span class="ang-chip">${esc(x.name)}${x.from ? ` <small>${esc(x.from)}</small>` : ''}<button data-g="vmodDel" data-id="${esc(id)}" data-v="${i}">${ic('x')}</button></span>`)).join('')}${btn('vmodAdd', `${ic('plus')} свой мод`, attr({ id }), 'sm ghost')}${btn('insightFor', `${ic('dice')} Инсайт`, attr({ id }), 'sm ghost')}${btn('fuseAdd', `${ic('merge')} В сплав`, attr({ kind: 'veh', id }), 'sm ghost')}</div>
     ${sec('Тайник в машине', String((v.stash || []).length))}<div class="ang-list tight">${(v.stash || []).map(C.itemById).filter(Boolean).map(it => `<div class="ang-row">${kic(it.kind)}<span>${esc(it.name)}</span>${btn('vstashOut', ic('x'), attr({ id, v: it.id }), 'ico sm ghost')}</div>`).join('')}${btn('vstashIn', `${ic('plus')} Спрятать сюда`, attr({ id }), 'sm ghost')}</div>
     ${field('Описание', area('v', id, 'desc', v.desc, 'как едет, чем хороша', 3))}
     ${v.why ? field('Почему ему', area('v', id, 'why', v.why, 'навык, привычка, характер', 2)) : ''}
@@ -619,16 +657,21 @@ function suitSheet() {
     if (!s) return `<div class="ang-sheet">${sheetHead('Костюм')}${empty('Не найден.')}</div>`;
     const d = C.sdyn(s.id);
     const id = s.id;
+    const st = C.suitStats(s);
     return `<div class="ang-sheet">${sheetHead(`${ic('shield')} ${esc(s.name)}`)}
     ${imgBox(s.img, 'drawSuit', id, 'Нарисовать', 'shield')}
     <div class="ang-row wrap">${btn('worn', d.worn ? `${ic('check')} Надет` : 'Надеть', attr({ id }), d.worn ? 'sm primary' : 'sm')}${btn('mainSuit', s.main ? `${ic('check')} Основной` : 'Сделать основным', attr({ id }), s.main ? 'sm primary' : 'sm ghost')}</div>
     ${segs('sst', d.st, Object.entries(D.SUIT_ST), attr({ id }))}
     ${sec('Урон по зонам')}<div class="ang-szones">${D.SZONES.map(([z, t]) => `<div class="ang-sz"><span>${esc(t)}</span>${bar(d.dmg[z] || 0, (d.dmg[z] || 0) >= 70 ? 'bad' : (d.dmg[z] || 0) >= 25 ? 'warn' : 'ok')}${btn('sdmg', '−', attr({ id, z, v: -25 }), 'sm ghost')}${btn('sdmg', '+', attr({ id, z, v: 25 }), 'sm ghost')}</div>`).join('')}</div>
-    <div class="ang-grid2">${field('Название', inp('s', id, 'name', s.name))}${field('Чей', sel('s', id, 'who', s.who, [['', '—'], ...peopleList().map(n => [n, C.short(n)])]))}${field('Вид', sel('s', id, 'kind', s.kind, D.SKINDS))}${field('Броня', sel('s', id, 'armor', s.armor, [1, 2, 3, 4, 5].map(n => [n, '●'.repeat(n)])))}</div>
+    ${sec('Характеристика')}<div class="ang-stats">${statRow('броня', s.armor)}${statRow('подвижность', st.mob)}${statRow('скрытность', st.stealth)}${statRow('автономность', st.power)}</div>
+    <div class="ang-kv">${ic('shield')}<span>${esc((t => t[0].toUpperCase() + t.slice(1))(D.ARMOR_STOPS[Math.max(1, Math.min(5, Number(s.armor) || 3))]))}</span></div>
+    ${s.selfFix ? `<div class="ang-row">${btn('selfFix', `${ic('refresh')} Самопочинка`, attr({ id }), 'sm ghost')}<small class="ang-mute">${s.fixDay && s.fixDay === C.storyDay() ? 'сегодня уже зарастало' : 'раз в день истории: −25% урона по зонам'}</small></div>` : ''}
+    <div class="ang-grid2">${field('Название', inp('s', id, 'name', s.name))}${field('Чей', sel('s', id, 'who', s.who, [['', '—'], ...peopleList().map(n => [n, C.short(n)])]))}${field('Вид', sel('s', id, 'kind', s.kind, D.SKINDS))}${field('Броня', sel('s', id, 'armor', s.armor, [1, 2, 3, 4, 5].map(n => [n, '●'.repeat(n)])))}${field('Подвижность', sel('s', id, 'stats.mob', st.mob, [1, 2, 3, 4, 5].map(n => [n, '●'.repeat(n)])))}${field('Скрытность', sel('s', id, 'stats.stealth', st.stealth, [1, 2, 3, 4, 5].map(n => [n, '●'.repeat(n)])))}${field('Автономность', sel('s', id, 'stats.power', st.power, [1, 2, 3, 4, 5].map(n => [n, '●'.repeat(n)])))}</div>
     ${field('Где лежит', `<input data-gf="sd:where" data-id="${esc(id)}" value="${esc(d.where)}" placeholder="на теле / в шкафу / в лабе">`)}
     ${field('Как выглядит (для кадров)', area('s', id, 'look', s.look, 'силуэт, цвета, материалы, маска', 3))}
     ${sec('Системы', String(s.systems.length))}<div class="ang-list tight">${s.systems.map(y => `<div class="ang-sz"><span>${esc(y.name)}</span>${bar(y.pct, y.pct < 40 ? 'bad' : y.pct < 70 ? 'warn' : 'ok')}${btn('sys', '−', attr({ id, sys: y.id, v: -20 }), 'sm ghost')}${btn('sys', '+', attr({ id, sys: y.id, v: 20 }), 'sm ghost')}${btn('sysDel', ic('x'), attr({ id, sys: y.id }), 'ico sm ghost')}</div>`).join('')}${btn('sysAdd', `${ic('plus')} система`, attr({ id }), 'sm ghost')}</div>
-    ${sec('Апгрейды', String(s.upgrades.length))}<div class="ang-row wrap">${s.upgrades.map((x, i) => `<span class="ang-chip">${esc(x.name)}${x.from ? ` <small>${esc(x.from)}</small>` : ''}<button data-g="supDel" data-id="${esc(id)}" data-v="${i}">${ic('x')}</button></span>`).join('')}${btn('supAdd', `${ic('plus')} апгрейд`, attr({ id }), 'sm ghost')}${btn('insightFor', `${ic('dice')} Инсайт`, attr({ id }), 'sm ghost')}</div>
+    ${upBlock(s)}
+    <div class="ang-row wrap">${s.upgrades.map((x, i) => (x.up ? '' : `<span class="ang-chip">${esc(x.name)}${x.from ? ` <small>${esc(x.from)}</small>` : ''}<button data-g="supDel" data-id="${esc(id)}" data-v="${i}">${ic('x')}</button></span>`)).join('')}${btn('supAdd', `${ic('plus')} свой апгрейд`, attr({ id }), 'sm ghost')}${btn('insightFor', `${ic('dice')} Инсайт`, attr({ id }), 'sm ghost')}${btn('fuseAdd', `${ic('merge')} В сплав`, attr({ kind: 'suit', id }), 'sm ghost')}</div>
     ${field('Заметки', area('s', id, 'note', s.note, 'история, что умеет, что ломается', 3))}
     ${s.why ? field('Почему ему', area('s', id, 'why', s.why, 'навык, привычка, характер', 2)) : ''}
     <div class="ang-row end">${s.src === 'life' ? chip('из Life → Герои') : ''}${btn('delSuit', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
@@ -648,10 +691,13 @@ function projSheet() {
     ${imgBox(p.img, 'drawProj', id, C.era().id === 'ssr' ? 'Чертёж на кальке' : 'Голо-чертёж', 'flask')}
     ${p.dead ? `<div class="ang-dead">${ic('grave')}<div><b>На кладбище</b><p>${esc(p.deadWhy)}</p></div>${btn('revive', 'Оживить', attr({ id }), 'sm')}</div>` : ''}
     ${p.lock ? `<div class="ang-kv">${ic('lock')}<span>Секрет: про это знает только она.</span></div>` : ''}
+    ${p.idea || p.src === 'idea' ? `<div class="ang-kv">${ic('sparkles')}<span>Придумано, не из лора — правь или удаляй смело.</span></div>` : ''}
+    ${p.fused?.length ? `<div class="ang-kv">${ic('merge')}<span>Сплав: ${esc(p.fused.join(' + '))}</span></div>` : ''}
+    ${p.scene ? `<div class="ang-kv">${ic('eye')}<span>${esc(p.scene)}</span></div>` : ''}
     ${stageDots(p, 'stage')}
     ${st < D.STAGES.length - 1 && !p.dead ? `<div class="ang-prog">${btn('pct', '−10', attr({ id, v: -10 }), 'sm ghost')}${bar(pct, 'big')}<b>${pct}%</b>${btn('pct', '+10', attr({ id, v: 10 }), 'sm ghost')}</div>` : ''}
     ${pend ? `<div class="ang-shot">${ic('send')}<span>Ждёт сцены: ${esc(C.cut(pend.text.replace(/^\[|\]$/g, ''), 130))}</span><button data-g="disarm" data-v="${pend.at}">${ic('x')}</button></div>` : ''}
-    ${!p.dead ? `<div class="ang-actions">${st < D.STAGES.length - 1 ? btn('exp', `${ic('dice')} Опыт`, attr({ id }), 'primary') : btn('release', `${ic('send')} Выпустить`, attr({ id }), 'primary')}${btn('insightFor', `${ic('sparkles')} Инсайт`, attr({ id }), 'ghost')}${btn('logAdd', ic('notes'), attr({ id }) + ' title="Запись в журнал"', 'ico ghost')}</div>` : ''}
+    ${!p.dead ? `<div class="ang-actions">${st < D.STAGES.length - 1 ? btn('exp', `${ic('dice')} Опыт`, attr({ id }), 'primary') : btn('release', `${ic('send')} ${p.out === 'mod' ? 'Поставить на…' : 'Выпустить'}`, attr({ id }), 'primary')}${st >= D.STAGES.length - 1 && p.out !== 'mod' ? btn('asUp', `${ic('up')} Апгрейдом`, attr({ id }) + ' title="Поставить как апгрейд на вещь, технику или костюм"', 'ghost') : ''}${btn('fuseAdd', `${ic('merge')} В сплав`, attr({ kind: 'proj', id }), 'ghost')}${btn('insightFor', `${ic('sparkles')} Инсайт`, attr({ id }), 'ghost')}${btn('logAdd', ic('notes'), attr({ id }) + ' title="Запись в журнал"', 'ico ghost')}</div>` : ''}
     <div class="ang-grid2">${field('Название', inp('p', id, 'name', p.name))}${field('Область', sel('p', id, 'field', p.field, D.FIELDS))}${field('Выйдет', sel('p', id, 'out', p.out, D.OUT_TYPES))}${field('Год её жизни', inp('p', id, 'ty', Number(p.ty) ? Math.floor(p.ty) : '', '2024', 'number'))}</div>
     ${field('Команда', inp('p', id, 'team', p.team.join(', '), 'Айрис, Тони'))}
     ${field('Что это', area('p', id, 'note', p.note, 'идея, затык, история', 3))}
@@ -661,7 +707,7 @@ function projSheet() {
     ${un.length ? `<div class="ang-kv">${ic('tree')}<span>Откроет: ${un.map(q => esc(q.name)).join(', ')}</span></div>` : ''}
     ${bl.length ? `<div class="ang-kv warn">${ic('lock')}<span>Ждёт: ${bl.map(q => esc(q.name)).join(', ')}</span></div>` : ''}
     ${sec('Материалы', String(p.mats.length))}<div class="ang-row wrap">${p.mats.map(x => ({ x, m: C.matById(x.id) })).filter(y => y.m).map(({ x, m }) => `<span class="ang-chip ${Number(m.qty) >= x.n ? 'ok' : 'bad'}">${esc(m.name)} ×${x.n} <small>есть ${m.qty}</small><button data-g="pmatDel" data-id="${esc(id)}" data-v="${esc(m.id)}">${ic('x')}</button></span>`).join('')}${btn('pmatAdd', `${ic('plus')} материал`, attr({ id }), 'sm ghost')}</div>
-    ${p.released.length ? `<div class="ang-kv ok">${ic('check')}<span>Выпущено: ${p.released.map(x => esc((C.itemById(x) || C.vehById(x) || C.suitById(x))?.name || '—')).join(', ')}</span></div>` : ''}
+    ${p.released.length ? `<div class="ang-kv ok">${ic('check')}<span>Выпущено и стоит на: ${p.released.map(x => { const t = C.targetById(x); return t ? `<button class="ang-link" data-g="openAny" data-id="${esc(x)}">${esc(t.name)}</button>` : '—'; }).join(', ')}</span></div>` : ''}
     ${sec('Журнал', String(log.length))}<div class="ang-log">${log.map(l => `<div class="ang-lg ${esc(l.kind)}"><span>${esc(l.at || '')}</span><p>${esc(l.t)}</p></div>`).join('') || '<div class="ang-mute">пусто</div>'}</div>
     <div class="ang-row end">${!p.dead ? btn('bury', `${ic('grave')} На кладбище`, attr({ id }), 'sm ghost') : ''}${btn('delProj', `${ic('trash')} Удалить`, attr({ id }), 'sm ghost danger')}</div></div>`;
 }
@@ -758,12 +804,12 @@ function insightSheet() {
     const g = I.roll ? D.insightOf(I.roll) : null;
     const target = I.pid ? C.projById(I.pid) : I.xid ? (C.itemById(I.xid) || C.vehById(I.xid) || C.suitById(I.xid)) : null;
     return `<div class="ang-sheet">${sheetHead(`${ic('dice')} Кубик инсайтов${target ? ` · ${esc(target.name)}` : ''}`)}
-    <div class="ang-hint">d20 решает жанр: 1–2 безумная · 3–7 бытовая · 8–14 рабочая · 15–19 связка · 20 прорыв. Дальше — короткий брейншторм умной модели.</div>
+    <div class="ang-hint">d20 решает жанр: ${esc(GENRE_HINT())}. Дальше — брейншторм умной модели: у каждой идеи фишка, сцена и цена.</div>
     ${dieHtml(I.rolling ? I.flash : I.roll, I.rolling, g ? `g-${g.id}` : '')}
-    ${g ? `<div class="ang-genre g-${g.id}"><b>${g.ico} ${esc(g.name)}</b><small>${esc(g.ask)}</small></div>` : ''}
+    ${g ? `<div class="ang-genre g-${g.id}"><b>${g.ico} ${esc(g.name)}</b><small>${esc(C.insightAsk(g))}</small></div>` : ''}
     ${field('О чём думает (необязательно)', `<input data-gf="ins:ask" data-id="i" value="${esc(I.ask || '')}" placeholder="что-то для малыша / против Дума / для руки Баки">`)}
     <div class="ang-actions">${btn('insRoll', I.busy ? `${spin} Думаю…` : `${ic('dice')} ${I.roll ? 'Ещё бросок' : 'Бросить'}`, '', 'primary wide')}</div>
-    ${(I.ideas || []).length ? `<div class="ang-list">${I.ideas.map(y => `<div class="ang-idea${y.used ? ' used' : ''}"><b>${esc(y.title)}</b><p>${esc(y.text)}</p>${y.used ? '<small>в проектах</small>' : `<div class="ang-row">${btn('ideaProj', `${ic('plus')} В проекты`, attr({ set: I.set, id: y.id }), 'sm')}${target && C.projById(target.id) ? btn('ideaNote', `${ic('notes')} В журнал`, attr({ set: I.set, id: y.id }), 'sm ghost') : ''}</div>`}</div>`).join('')}</div>` : ''}</div>`;
+    ${(I.ideas || []).length ? `<div class="ang-list">${I.ideas.map(y => ideaHtml(y, I.set, target && C.projById(target.id) ? btn('ideaNote', `${ic('notes')} В журнал`, attr({ set: I.set, id: y.id }), 'sm ghost') : '')).join('')}</div>` : ''}</div>`;
 }
 
 function expSheet() {
@@ -781,6 +827,86 @@ function expSheet() {
     ${r ? `<div class="ang-out out-${r.out}"><b>${esc(r.name)}</b><p>${esc(r.flavor)}</p><span>${r.delta > 0 ? '+' : ''}${r.delta}% к стадии</span></div>
     <div class="ang-actions">${btn('expScene', `${ic('send')} В сцену`, '', 'primary')}${btn('expQuiet', 'За кадром', '', 'ghost')}${btn('expRoll', ic('refresh'), '', 'ico ghost')}</div>
     <div class="ang-hint">«В сцену» — модель покажет это в следующем ответе. «За кадром» — только прогресс и журнал.</div>` : `<div class="ang-actions">${btn('expRoll', `${ic('dice')} Бросить`, '', 'primary wide')}</div>`}</div>`;
+}
+
+// ───────────── мастерская: лист апгрейда (каталог → кто ставит → кубик) ─────────────
+
+function upOption(x, t, u) {
+    const fx = C.upEffect(x, u, 'win', u.focus);
+    const meta = [u.lab && !u.pid ? 'лаба' : '', u.cost ? C.money(u.cost) : '', u.val ? `ценность +${Math.round(u.val * 100)}%` : u.pid && t !== 'suit' ? 'ценность ↑' : '', u.diff < 0 ? `сложность ${u.diff}` : u.diff > 0 ? 'просто' : '', u.mat ? `${u.mat}${C.matHave(u.mat) ? '' : ' — нет'}` : ''].filter(Boolean);
+    return `<button class="ang-upopt${u.have ? ' have' : ''}" data-g="upPick" data-v="${esc(u.id)}" ${u.have ? 'disabled' : ''}>
+        <span class="ang-up-i">${ic(u.pid ? 'flask' : u.lab ? 'chip' : 'wrench')}</span>
+        <div><div class="ang-card-h"><b>${esc(u.name)}</b>${u.have ? chip('стоит', 'ok') : ''}</div><small class="ang-fx">${esc(u.pid ? `по выбору: ${D.FOCUS[t].map(f => f[1]).join(', ')}` : C.fxLine(fx, t) || 'свойство, без цифр')}</small>${u.adds || u.note ? `<p>${esc(C.cut(u.note || u.adds, 140))}</p>` : ''}${meta.length ? `<small>${esc(meta.join(' · '))}</small>` : ''}</div></button>`;
+}
+function upPayRow(d, cost, who) {
+    const l = C.payers(who);
+    const cur = d.acc || C.defaultPayer(who);
+    return `<div class="ang-row wrap center"><button class="ang-chip${d.pay ? ' on' : ''}" data-g="upPay">${d.pay ? `${ic('check')} ` : ''}списать ${esc(C.money(cost))}</button>${d.pay ? l.slice(0, 6).map(a => `<button class="ang-chip${a.id === cur ? ' on' : ''}" data-g="upAcc" data-v="${esc(a.id)}">${esc(a.label)} <small>${esc(a.text)}</small></button>`).join('') : '<small class="ang-mute">за счёт конторы / бартер</small>'}</div>`;
+}
+function upSheet() {
+    const d = ui.modal;
+    const x = C.targetById(d.id);
+    if (!x) return `<div class="ang-sheet">${sheetHead('Апгрейд')}${empty('Цели больше нет.')}</div>`;
+    const t = C.upType(x);
+    const head = sheetHead(`${ic('up')} ${esc(x.name)}`, `<small class="ang-mute">${esc(D.UP_T[t] || '')}</small>`);
+    const up = d.key ? C.upSpec(x, d.key) : null;
+    if (!up) {
+        const cat = C.upCatalog(x), lab = C.upLab(x);
+        const list = d.tab === 'lab' ? lab : cat;
+        return `<div class="ang-sheet">${head}
+        <div class="ang-hint">Ставишь — бросаешь d20: кто ставит, сложность, материал и база дают поправку. Прорыв — сверх расчёта, частично — с побочкой, неожиданный эффект — со странностью, провал — время и половина денег, бабах — вещь пострадает.</div>
+        ${segs('upTab', d.tab, [['shop', `Мастерская · ${cat.length}`], ['lab', `Из лабы · ${lab.length}`]])}
+        <div class="ang-list">${list.map(u => upOption(x, t, u)).join('') || empty(d.tab === 'lab' ? 'Готовых изобретений под это нет. Доведи проект до «Готово» — или сплавь новый.' : 'В этой эпохе для такого ничего нет.')}</div></div>`;
+    }
+    const people = [...peopleList(), D.MASTER];
+    const mods = d.mods || [];
+    const raw = mods.filter(m => m.on).reduce((a, m) => a + m.v, 0) + d.own;
+    const sum = Math.max(-C.MOD_CAP, Math.min(C.MOD_CAP, raw));
+    const r = d.result;
+    const cost = C.upCost(up, d.who);
+    const payer = x.owner || x.who || C.userName();
+    const due = r?.out === 'fail' ? Math.round(cost / 20) * 10 : cost;
+    return `<div class="ang-sheet">${head}
+    <div class="ang-uphead"><span class="ang-up-i">${ic(up.pid ? 'flask' : up.lab ? 'chip' : 'wrench')}</span><div><b>${esc(up.name)}</b><small>${esc(C.cut(up.pid ? up.note : up.adds || C.fxLine(C.upEffect(x, up, 'win'), t), 160))}</small></div>${btn('upPick', 'сменить', 'data-v=""', 'sm ghost')}</div>
+    ${up.pid ? `${sec('Что даст')}<div class="ang-chips">${D.FOCUS[t].map(([k, l]) => `<button class="ang-chip${(d.focus || up.focus) === k ? ' on' : ''}" data-g="upFocus" data-v="${k}">${esc(l)}</button>`).join('')}</div>` : ''}
+    ${sec('Кто ставит')}<div class="ang-chips wrap">${people.map(n => { const w = C.workerOf(n); const sk = w?.master ? D.MASTER_SKILL : w?.[t] || 0; const on = n === D.MASTER ? d.who === D.MASTER : C.same(n, d.who); return `<button class="ang-chip${on ? ' on' : ''}" data-g="upWho" data-v="${esc(n)}">${esc(n === D.MASTER ? 'мастер со стороны' : C.short(n))}${sk ? ` <small>+${sk}</small>` : ''}</button>`; }).join('')}</div>
+    <div class="ang-mods">${mods.map((m, i) => `<button class="ang-mod${m.on ? ' on' : ''}" data-g="mod" data-v="${i}"><span>${esc(m.label)}</span><b>${m.v > 0 ? '+' : ''}${m.v}</b></button>`).join('')}</div>
+    <div class="ang-row center">${btn('modOwn', '−1', 'data-v="-1"', 'sm ghost')}<span class="ang-mute">своя поправка: ${d.own > 0 ? '+' : ''}${d.own}</span>${btn('modOwn', '+1', 'data-v="1"', 'sm ghost')}</div>
+    ${dieHtml(d.rolling ? d.flash : r ? r.roll : null, d.rolling, r ? `out-${r.out}` : '')}
+    <div class="ang-mute center">${r ? `${r.roll} ${r.modSum >= 0 ? '+' : '−'} ${Math.abs(r.modSum)} = ${r.sum}` : `поправки ${sum >= 0 ? '+' : ''}${sum}${raw !== sum ? ` (из ${raw}, потолок ±${C.MOD_CAP})` : ''}`}</div>
+    ${r ? `<div class="ang-out out-${r.out}"><b>${esc(r.name)}</b><p>${esc(r.flavor)}</p><span>${r.fx.ok ? `${esc(C.fxLine(r.fx, t) || 'свойство встало')}${r.fx.val ? ` · ценность +${esc(C.money(r.fx.val))}` : ''}` : r.out === 'boom' ? 'не встало, и вещь пострадает' : 'не встало'}</span>${r.quirk ? `<em class="ang-quirk">${esc(r.quirk)}</em>` : ''}</div>
+      ${due > 0 ? upPayRow(d, due, payer) : ''}
+      <div class="ang-actions">${btn('upApply', busy('up') ? spin : `${ic('send')} В сцену`, 'data-v="scene"', 'primary')}${btn('upApply', 'За кадром', 'data-v="quiet"', 'ghost')}${btn('upRoll', ic('refresh'), 'title="Перебросить"', 'ico ghost')}</div>
+      <div class="ang-hint">«В сцену» — модель покажет работу в следующем ответе. «За кадром» — только вещь и журнал.</div>`
+        : `${cost > 0 ? `<div class="ang-mute center">работа и детали: ${esc(C.money(cost))}${d.who === D.MASTER ? ' — мастер берёт целиком' : ''}</div>` : ''}<div class="ang-actions">${btn('upRoll', `${ic('dice')} Бросить`, '', 'primary wide')}</div>`}</div>`;
+}
+
+// ───────────── сплав: лист кубика ─────────────
+
+const FUSE_OUT = { break: 'выйдет сразу на испытания (или в прототип, если что-то не готово)', win: 'выйдет прототипом (или теорией)', part: 'выйдет теорией — с ограничением', odd: 'выйдет теорией — со странным свойством', fail: 'не срастётся — останется урок', boom: 'авария: неготовые части откатятся' };
+function fuseSheet() {
+    const d = ui.modal;
+    const head = sheetHead(`${ic('merge')} Сплав`);
+    if (d.done) {
+        const res = d.done;
+        return `<div class="ang-sheet">${head}
+        ${res.p ? `<div class="ang-out out-${esc(d.result?.out || 'win')}"><b>«${esc(res.p.name)}»</b><p>${esc(res.p.note)}</p><span>${esc(D.STAGES[C.projStage(res.p)])}${res.p.spec ? ` · ${esc(C.cut(res.p.spec, 140))}` : ''}</span></div>
+            <div class="ang-actions">${btn('proj', `${ic('flask')} Открыть проект`, attr({ id: res.p.id }), 'primary')}${btn('closeModal', 'Готово', '', 'ghost')}</div>`
+        : res.lesson ? `<div class="ang-out out-fail"><b>${esc(res.lesson.title)}</b><p>${esc(res.lesson.text)}</p><span>урок — в Инсайтах</span></div><div class="ang-actions">${btn('closeModal', 'Ладно', '', 'primary')}</div>`
+        : `<div class="ang-out out-boom"><b>Бабах</b><p>${esc(res.boom)}</p>${res.hurt?.length ? `<span>досталось: ${esc(res.hurt.join(', '))}</span>` : ''}</div><div class="ang-actions">${btn('closeModal', 'Убрать пену', '', 'primary')}</div>`}</div>`;
+    }
+    const raw = d.mods.filter(m => m.on).reduce((a, m) => a + m.v, 0) + d.own;
+    const sum = Math.max(-C.MOD_CAP, Math.min(C.MOD_CAP, raw));
+    const r = d.result;
+    return `<div class="ang-sheet">${head}
+    <div class="ang-fsum">${d.parts.map(q => `<span>${esc(q.name)}</span>`).join('<i>+</i>')}</div>
+    <div class="ang-mods">${d.mods.map((m, i) => `<button class="ang-mod${m.on ? ' on' : ''}" data-g="mod" data-v="${i}"><span>${esc(m.label)}</span><b>${m.v > 0 ? '+' : ''}${m.v}</b></button>`).join('')}</div>
+    <div class="ang-row center">${btn('modOwn', '−1', 'data-v="-1"', 'sm ghost')}<span class="ang-mute">своя поправка: ${d.own > 0 ? '+' : ''}${d.own}</span>${btn('modOwn', '+1', 'data-v="1"', 'sm ghost')}</div>
+    ${dieHtml(d.rolling ? d.flash : r ? r.roll : null, d.rolling, r ? `out-${r.out}` : '')}
+    <div class="ang-mute center">${r ? `${r.roll} ${r.modSum >= 0 ? '+' : '−'} ${Math.abs(r.modSum)} = ${r.sum}` : `поправки ${sum >= 0 ? '+' : ''}${sum}${raw !== sum ? ` (из ${raw}, потолок ±${C.MOD_CAP})` : ''}`}</div>
+    ${r ? `<div class="ang-out out-${r.out}"><b>${esc(r.name)}</b><p>${esc(r.flavor)}</p><span>${esc(FUSE_OUT[r.out] || '')}</span></div>
+      <div class="ang-actions">${btn('fuseApply', busy('fuse') ? `${spin} Сплавляю…` : `${ic('send')} Сплавить · в сцену`, 'data-v="scene"', 'primary')}${btn('fuseApply', 'За кадром', 'data-v="quiet"', 'ghost')}${btn('fuseRoll', ic('refresh'), 'title="Перебросить"', 'ico ghost')}</div>`
+        : `<div class="ang-actions">${btn('fuseRoll', `${ic('dice')} Бросить`, '', 'primary wide')}</div>`}</div>`;
 }
 
 function protoSheet() {
@@ -871,6 +997,33 @@ function newItemForm(kind = '') {
         withBusy(`desc:${it.id}`, async () => { await C.describe(it); });
         return 'keep';
     }, { ok: 'Добавить', hint: '' });
+}
+
+/** Кто по умолчанию ставит апгрейд: стволы и ножи — Баки (если он есть рядом), остальное — Хеди. */
+function defWorker(x) {
+    const t = C.upType(x);
+    const own = x.owner || x.who || '';
+    const w = C.workerOf(own);
+    if (w && (w[t] || 0) >= 3) return C.canon(own);
+    if (t === 'gun' || t === 'blade') { const b = peopleList().find(n => /баки|bucky|барнс/i.test(n)); if (b) return b; }
+    return C.userName();
+}
+/** Готовое изобретение — апгрейдом: выбрать, на что поставить, и сразу в лист кубика. */
+function labToUp(p) {
+    if (!p) return;
+    const fits = (x) => C.upLab(x).some(u => u.pid === p.id);
+    const list = [
+        ...C.M().items.filter(fits).map(x => ({ ico: D.kindOf(x.kind)[2], t: x.name, s: C.short(x.owner), id: x.id })),
+        ...C.M().vehicles.filter(fits).map(x => ({ ico: D.vkindOf(x.kind)[2], t: x.name, s: 'техника', id: x.id })),
+        ...C.M().suits.filter(fits).map(x => ({ ico: 'shield', t: x.name, s: C.short(x.who), id: x.id })),
+    ];
+    pick(`«${p.name}» — на что поставить`, list, (o) => {
+        const x = C.targetById(o.id);
+        const who = C.userName();
+        const key = `lab:${p.id}`;
+        const up = C.upSpec(x, key);
+        modal('up', { id: x.id, tab: 'lab', key, who, focus: up?.focus || '', mods: up ? C.upMods(x, up, who) : null, own: 0, result: null, pay: true, acc: '' });
+    }, { hint: 'Изобретение встанет апгрейдом: что даст — выберешь, исход решит кубик.', none: 'Некуда: такое ставится на гаджеты, стволы, броню, технику или костюмы.' });
 }
 
 const HANDLERS = {
@@ -1073,7 +1226,7 @@ const HANDLERS = {
     plates: (el) => { const v = C.vehById(el.dataset.id); if (!v.fake) { C.toast('info', 'Сначала впиши левый номер'); return; } [v.plate, v.fake] = [v.fake, v.plate]; C.setVdyn(v.id, { burn: 0 }); after(); C.toast('success', 'Номера сменены, засветка сброшена'); },
     burnV: (el) => { const s = C.vdyn(el.dataset.id); C.setVdyn(el.dataset.id, { burn: C.clamp(s.burn + Number(el.dataset.v)) }); after(); },
     vmodAdd: (el) => { const v = C.vehById(el.dataset.id); form('Тюнинг', [{ k: 'name', label: 'Что', ph: 'бронестекло, Арт в бортовом, дымовая завеса' }], (x) => { if (!x.name.trim()) return false; v.mods.push({ name: x.name.trim(), from: '' }); after(); modal('veh', { id: v.id }); return 'keep'; }); },
-    vmodDel: (el) => { const v = C.vehById(el.dataset.id); v.mods.splice(Number(el.dataset.v), 1); after(); },
+    vmodDel: (el) => { const v = C.vehById(el.dataset.id); const m = v.mods[Number(el.dataset.v)]; if (m?.up) C.removeUp(v, m.up); else v.mods.splice(Number(el.dataset.v), 1); after(); },
     vstashIn: (el) => { const v = C.vehById(el.dataset.id); const list = C.M().items.filter(it => !(v.stash || []).includes(it.id)); pick('Спрятать в машину', list.map(it => ({ ico: D.kindOf(it.kind)[2], t: it.name, s: C.short(it.owner), id: it.id })), (x) => { v.stash = [...(v.stash || []), x.id]; C.setDyn(x.id, { where: `тайник: ${v.name}`, hands: false }); after(); modal('veh', { id: v.id }); }); },
     vstashOut: (el) => { const v = C.vehById(el.dataset.id); v.stash = (v.stash || []).filter(x => x !== el.dataset.v); C.setDyn(el.dataset.v, { where: '' }); after(); },
     drawVeh: (el) => { const v = C.vehById(el.dataset.id); withBusy(`drawVeh:${v.id}`, () => C.draw('veh', v)); },
@@ -1089,7 +1242,7 @@ const HANDLERS = {
     sysDel: (el) => { const s = C.suitById(el.dataset.id); s.systems = s.systems.filter(q => q.id !== el.dataset.sys); after(); },
     sysAdd: (el) => { const s = C.suitById(el.dataset.id); form('Система костюма', [{ k: 'name', label: 'Что', ph: 'репульсоры, щит, связь с Артом, стелс' }], (v) => { if (!v.name.trim()) return false; s.systems.push({ id: C.uid(), name: v.name.trim(), pct: 100 }); after(); modal('suit', { id: s.id }); return 'keep'; }); },
     supAdd: (el) => { const s = C.suitById(el.dataset.id); form('Апгрейд', [{ k: 'name', label: 'Что', ph: 'вибраниевая подкладка' }], (v) => { if (!v.name.trim()) return false; s.upgrades.push({ name: v.name.trim(), from: '' }); after(); modal('suit', { id: s.id }); return 'keep'; }); },
-    supDel: (el) => { const s = C.suitById(el.dataset.id); s.upgrades.splice(Number(el.dataset.v), 1); after(); },
+    supDel: (el) => { const s = C.suitById(el.dataset.id); const u = s.upgrades[Number(el.dataset.v)]; if (u?.up) C.removeUp(s, u.up); else s.upgrades.splice(Number(el.dataset.v), 1); after(); },
     drawSuit: (el) => { const s = C.suitById(el.dataset.id); withBusy(`drawSuit:${s.id}`, async () => { await C.draw('suit', s); if (s.main) C.heroSync(s); }); },
     delSuit: (el) => { if (!confirm('Удалить костюм?')) return; C.delSuit(el.dataset.id); closeModal(); },
     heroPull: () => { const n = C.heroImport(); C.toast('info', n ? `Подтянуто из Героев: ${n}` : 'В Life → Героях новых костюмов нет'); after(); },
@@ -1106,11 +1259,7 @@ const HANDLERS = {
     expQuiet: () => { const d = ui.modal; C.applyExp(d.result, false); const id = d.pid; after(); modal('proj', { id }); },
     release: (el) => {
         const p = C.projById(el.dataset.id);
-        if (p.out === 'mod') {
-            const list = [...C.M().items.map(x => ({ ico: D.kindOf(x.kind)[2], t: x.name, s: C.short(x.owner), id: x.id })), ...C.M().vehicles.map(x => ({ ico: D.vkindOf(x.kind)[2], t: x.name, s: 'техника', id: x.id })), ...C.M().suits.map(x => ({ ico: 'shield', t: x.name, s: C.short(x.who), id: x.id }))];
-            pick(`Мод «${p.name}» — на что`, list, (x) => { C.release(p, x.id); after(); modal('proj', { id: p.id }); C.toast('success', 'Мод поставлен'); });
-            return;
-        }
+        if (p.out === 'mod') { labToUp(p); return; }
         const made = C.release(p);
         if (made) { after(); C.toast('success', `«${made.name}» — в ${C.vehById(made.id) ? 'гараже' : C.suitById(made.id) ? 'костюмах' : 'оружейной'}`); }
     },
@@ -1160,6 +1309,71 @@ const HANDLERS = {
     },
     ideaNote: (el) => { const I = ui.modal; const y = I.ideas.find(q => q.id === el.dataset.id); const p = C.projById(I.pid); if (y && p) { C.projLog(p, `Инсайт: ${y.title} — ${y.text}`); y.used = true; after(); } },
     disarm: (el) => { C.disarm(el.dataset.v); after(); },
+    // мастерская: апгрейды на кубике
+    upOpen: (el) => { const x = C.targetById(el.dataset.id); if (!x || !C.upType(x)) { C.toast('info', 'Сюда апгрейды не ставятся'); return; } modal('up', { id: x.id, tab: 'shop', key: '', who: defWorker(x), focus: '', mods: null, own: 0, result: null, pay: true, acc: '' }); },
+    upTab: (el) => { const d = ui.modal; d.tab = el.dataset.v; d.key = ''; d.result = null; paintModal(); },
+    upPick: (el) => { const d = ui.modal; const x = C.targetById(d.id); d.key = el.dataset.v || ''; d.result = null; d.own = 0; const up = d.key ? C.upSpec(x, d.key) : null; d.focus = up?.focus || ''; d.mods = up ? C.upMods(x, up, d.who) : null; d.keep = false; paintModal(); },
+    upWho: (el) => { const d = ui.modal; const x = C.targetById(d.id); d.who = el.dataset.v; d.result = null; const up = C.upSpec(x, d.key); if (up) d.mods = C.upMods(x, up, d.who); paintModal(); },
+    upFocus: (el) => { const d = ui.modal; d.focus = el.dataset.v; d.result = null; paintModal(); },
+    upRoll: () => { const d = ui.modal; const x = C.targetById(d.id); const up = C.upSpec(x, d.key); if (!up || d.rolling) return; const mods = [...(d.mods || [])]; if (d.own) mods.push({ key: 'own', label: 'своя поправка', v: d.own, on: true }); const res = C.rollUp(x, up, mods, { who: d.who, focus: d.focus }); d.result = null; rollAnim(d, () => { d.result = res; }); },
+    upPay: () => { ui.modal.pay = !ui.modal.pay; paintModal(); },
+    upAcc: (el) => { ui.modal.acc = el.dataset.v; paintModal(); },
+    upApply: (el) => {
+        const d = ui.modal;
+        if (!d?.result || busy('up')) return;
+        const x = C.targetById(d.id);
+        const scene = el.dataset.v === 'scene';
+        const who = x.owner || x.who || '';
+        withBusy('up', async () => {
+            const r0 = d.result;
+            const r = await C.applyUp(r0, { scene, pay: d.pay, acc: d.acc || C.defaultPayer(who), payer: who });
+            C.toast(r0.fx.ok ? 'success' : r0.out === 'boom' ? 'error' : 'warning', `${esc(r0.name)}: ${esc(r0.up.name)}${r.paid ? ` · ${esc(r.paid)}` : ''}${r.harm ? ` · ${esc(r.harm)}` : ''}${scene ? ' — уйдёт в пост' : ''}`);
+            upd();
+            modal(C.itemById(x.id) ? 'item' : C.vehById(x.id) ? 'veh' : 'suit', { id: x.id });
+        });
+    },
+    upDel: (el) => { const x = C.targetById(el.dataset.id); const rec = C.arr(x?.ups).find(u => u.id === el.dataset.v); if (!rec || !confirm(`Снять «${rec.name}»? Характеристики вернутся, ценность упадёт.`)) return; C.removeUp(x, rec.id); after(); },
+    selfFix: (el) => { const s = C.suitById(el.dataset.id); if (C.selfFix(s)) { C.toast('success', 'Наноткань затянула мелкий урон'); after(); } else C.toast('info', 'Сегодня уже зарастало'); },
+    asUp: (el) => labToUp(C.projById(el.dataset.id)),
+    openAny: (el) => openSheetFor(null, el.dataset.id),
+    // сплав
+    fuseAdd: (el) => {
+        const ref = { kind: el.dataset.kind, id: el.dataset.id, set: el.dataset.set || '' };
+        const F = ui.fuse;
+        const i = F.parts.findIndex(q => q.kind === ref.kind && q.id === ref.id);
+        if (i >= 0) { F.parts.splice(i, 1); C.toast('info', 'Убрано из сплава'); }
+        else if (F.parts.length >= 3) { C.toast('warning', 'В сплаве уже три части — больше нельзя'); return; }
+        else { F.parts.push(ref); C.toast('success', `В сплаве: ${F.parts.length} из 3 — Лаба → Сплав`); }
+        render(); if (ui.modal) paintModal();
+    },
+    fuseDel: (el) => { ui.fuse.parts.splice(Number(el.dataset.v), 1); render(); },
+    fusePick: () => {
+        const has = (k, id) => ui.fuse.parts.some(q => q.kind === k && q.id === id);
+        const list = [
+            ...C.projectsNow().filter(p => !p.dead && !has('proj', p.id)).map(p => ({ ico: 'flask', t: p.name, s: `проект · ${D.STAGES[C.projStage(p)]} · ${D.fieldName(p.field)}`, ref: { kind: 'proj', id: p.id } })),
+            ...C.M().insights.flatMap(set => set.ideas.filter(y => !y.used && !has('idea', y.id)).map(y => ({ ico: 'sparkles', t: y.title || C.cut(y.text, 40), s: `идея · ${C.cut(y.text, 60)}`, ref: { kind: 'idea', id: y.id, set: set.id } }))).slice(0, 20),
+            ...C.M().items.filter(it => C.upType(it) && !has('item', it.id)).map(it => ({ ico: D.kindOf(it.kind)[2], t: it.name, s: `вещь · ${C.short(it.owner)}`, ref: { kind: 'item', id: it.id } })),
+            ...C.M().vehicles.filter(v => !has('veh', v.id)).map(v => ({ ico: D.vkindOf(v.kind)[2], t: v.name, s: 'техника', ref: { kind: 'veh', id: v.id } })),
+            ...C.M().suits.filter(x => !has('suit', x.id)).map(x => ({ ico: 'shield', t: x.name, s: `костюм · ${C.short(x.who)}`, ref: { kind: 'suit', id: x.id } })),
+        ];
+        pick('Часть для сплава', list, (x) => { if (x.ref) ui.fuse.parts.push(x.ref); closeModal(); }, { hint: 'Проекты, идеи из инсайтов, железо, техника, костюмы — до трёх частей.', none: 'Нечего сплавлять: заведи проект или брось кубик инсайтов.' });
+    },
+    fuseHelp: (el) => { const F = ui.fuse; const n = el.dataset.v; const i = F.helpers.findIndex(h => C.same(h, n)); if (i >= 0) F.helpers.splice(i, 1); else F.helpers.push(n); render(); },
+    fuseHelpAdd: () => form('Кто помогает', [{ k: 'n', label: 'Имя', ph: 'Брюс Беннер' }], (v) => { const n = v.n.trim(); if (!n) return false; ui.fuse.helpers.push(C.canon(n)); return true; }),
+    fuseGo: () => { const parts = ui.fuse.parts.map(C.fusePart).filter(Boolean); if (parts.length < 2) { C.toast('info', 'Нужно хотя бы две части'); return; } modal('fuse', { parts, helpers: [...ui.fuse.helpers], ask: ui.fuse.ask, mods: C.fuseMods(parts, ui.fuse.helpers), own: 0, result: null, done: null }); },
+    fuseRoll: () => { const d = ui.modal; if (d.rolling || d.done) return; const mods = [...d.mods]; if (d.own) mods.push({ key: 'own', label: 'своя поправка', v: d.own, on: true }); const res = C.rollFuse(d.parts, mods); d.result = null; rollAnim(d, () => { d.result = res; }); },
+    fuseApply: (el) => {
+        const d = ui.modal;
+        if (!d?.result || d.done || busy('fuse')) return;
+        const scene = el.dataset.v === 'scene';
+        withBusy('fuse', async () => {
+            const res = await C.fuse(d.result, { ask: d.ask, helpers: d.helpers, scene });
+            d.done = res;
+            if (res.p || res.lesson) { ui.fuse.parts = []; ui.fuse.ask = ''; }
+            C.toast(res.p ? 'success' : res.boom ? 'error' : 'warning', res.p ? `Сплав: «${esc(res.p.name)}»` : res.boom ? 'Бабах в лабе' : 'Не срослось — урок в Инсайтах');
+            upd();
+        });
+    },
     // магазин
     shopSrc: (el) => { ui.shop.src = el.dataset.v; render(); },
     shopCat: (el) => { ui.shop.cat = el.dataset.v; if (ui.hall !== 'shop') { closeModal(); go('shop'); } else render(); },
@@ -1216,7 +1430,7 @@ export function onChange(e) {
     const [ent, key] = f.split(':');
     const id = el.dataset.id;
     const v = el.value;
-    const numKey = ['cap', 'ty', 'stats.range', 'gadget.max', 'stats.speed', 'stats.handling', 'stats.armor', 'armor', 'armor.level', 'gadget.reliab'];
+    const numKey = ['cap', 'ty', 'stats.range', 'gadget.max', 'stats.speed', 'stats.handling', 'stats.armor', 'armor', 'armor.level', 'gadget.reliab', 'stats.mob', 'stats.stealth', 'stats.power'];
     const val = numKey.includes(key) ? (Number(v) || 0) : key === 'gadget.proto' ? !!v : v;
     if (ent === 'it') {
         const it = C.itemById(id); if (!it) return;
@@ -1240,6 +1454,7 @@ export function onChange(e) {
     if (ent === 'shop') { ui.shop.ask = v; return; }
     if (ent === 'ins') { if (ui.modal) ui.modal.ask = v; return; }
     if (ent === 'kit') { if (ui.kit) ui.kit.ask = v; return; }
+    if (ent === 'fuse') { ui.fuse.ask = v; return; }
 }
 export function onInput(e) {
     const el = e.target;
@@ -1248,6 +1463,7 @@ export function onInput(e) {
     if (f === 'ins:ask' && ui.modal) ui.modal.ask = el.value;
     if (f === 'table:note') C.M().table.note = el.value;
     if (f === 'kit:ask' && ui.kit) ui.kit.ask = el.value;
+    if (f === 'fuse:ask') ui.fuse.ask = el.value;
 }
 async function upload(el) {
     const file = el.files?.[0];

@@ -466,3 +466,49 @@
 .ang-spar-prog > b { display: block; margin-bottom: 6px; }
 .ang-spar-prog > div { display: grid; grid-template-columns: 112px 1fr 26px; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); margin: 4px 0; }
 .ang-spar-prog small { text-align: right; color: var(--text); }
+
+/* 0.4 · мастерская: апгрейды на кубике */
+.ang-chip.up { color: var(--acc); border-color: var(--acc); background: var(--accbg); padding: 1px 7px; font-size: 11px; }
+.ang-ups { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.ang-up { display: grid; grid-template-columns: 30px 1fr auto; align-items: start; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line); }
+.ang-up b { display: block; font-size: 14px; }
+.ang-up small { display: block; font-size: 12px; color: var(--dim); margin-top: 2px; }
+.ang-up em, .ang-quirk { display: block; font-size: 12.5px; color: var(--warn); font-style: italic; margin-top: 3px; }
+.ang-up.out-break { border-color: rgba(111, 207, 151, .45); }
+.ang-up.out-odd { border-color: rgba(242, 201, 76, .4); }
+.ang-up-i { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--accbg); color: var(--acc); flex: none; }
+.ang-up-i .ang-i { width: 17px; height: 17px; }
+.ang-up-x { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--dim); }
+.ang-up-x .ang-i { width: 14px; height: 14px; }
+.ang-uprow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 10px; }
+.ang-val { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.ang-val .ang-i { width: 17px; height: 17px; color: var(--acc); }
+.ang-val small { color: var(--dim); font-size: 11.5px; }
+.ang-upopt { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; width: 100%; text-align: left; padding: 10px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line) !important; }
+.ang-upopt b { font-size: 14.5px; }
+.ang-upopt p { margin: 3px 0; font-size: 13px; opacity: .9; }
+.ang-upopt small { display: block; font-size: 12px; color: var(--dim); }
+.ang-upopt .ang-fx { color: var(--acc2); font-size: 12.5px; margin-top: 2px; }
+.ang-upopt.have { opacity: .55; }
+.ang-uphead { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: center; padding: 10px; border-radius: var(--r); background: var(--panel2); border: 1px solid var(--line); margin: 6px 0; }
+.ang-uphead b { display: block; font-size: 15px; }
+.ang-uphead small { display: block; font-size: 12.5px; color: var(--dim); }
+.ang-link { color: var(--acc); text-decoration: underline; text-underline-offset: 2px; font: inherit; padding: 0; }
+
+/* 0.4 · сплав */
+.ang-fparts { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 8px 0; }
+.ang-fpart { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 40px 10px 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line) !important; text-align: left; }
+.ang-fpart b { font-size: 15px; }
+.ang-fpart small { font-size: 12px; color: var(--dim); }
+.ang-fpart .ang-fk { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--acc); }
+.ang-fpart > button { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; display: grid; place-items: center; color: var(--dim); }
+.ang-fpart.add { flex-direction: row; align-items: center; gap: 10px; border-style: dashed !important; color: var(--acc); padding-right: 12px; }
+.ang-fpart.add small { margin-left: auto; text-align: right; }
+.ang-fsum { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin: 4px 0 10px; text-align: center; }
+.ang-fsum span { padding: 5px 10px; border-radius: 99px; background: var(--accbg); color: var(--acc2); font-size: 13px; font-weight: 600; }
+.ang-fsum i { font-style: normal; color: var(--dim); }
+.ang-idea-sc { font-style: italic; color: var(--acc2) !important; font-size: 13px !important; }
+.ang-idea-c { display: block; color: var(--dim) !important; margin: -2px 0 6px; }
+.ang-btn[disabled] { opacity: .45; pointer-events: none; }
+.ang-chips.wrap { flex-wrap: wrap; overflow: visible; }
+.ang-fpart.add b { white-space: nowrap; }

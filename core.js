@@ -13,7 +13,7 @@ export function setApi(a) { A = a; }
 
 const ctx = () => SillyTavern.getContext();
 export const MODULE = 'angar';
-export const VERSION = '0.3.2';
+export const VERSION = '0.4.0';
 
 // ───────────── мелочи ─────────────
 
@@ -136,9 +136,10 @@ export function timelineDay() {
     return null;
 }
 export const storyDay = () => timelineDay() || clock().day || '';
+/** Год истории с долями — до дня (0.4: кольцо 24 декабря и подарок 25-го различаются). */
 export function storyYear() {
     const d = storyDay();
-    if (d) return Number(d.slice(0, 4)) + (Number(d.slice(5, 7)) - 1) / 12;
+    if (d) return Number(d.slice(0, 4)) + (Number(d.slice(5, 7)) - 1) / 12 + Math.max(0, (Number(d.slice(8, 10)) || 1) - 1) / 365;
     return 2024.9;
 }
 export function era() {
@@ -541,8 +542,30 @@ export function normSuit(x, defaults = {}) {
         upgrades: arr(x?.upgrades).map(y => (typeof y === 'string' ? { name: cut(y, 80), from: '' } : { name: cut(str(y?.name), 80), from: cut(str(y?.from), 30) })).filter(y => y.name).slice(0, 12),
         main: !!x?.main, key: str(x?.key), why: cut(str(x?.why), 240),
     };
+    const def = D.SUIT_STATS[kind] || D.SUIT_STATS.other;
+    const st = x?.stats || {};
+    s.stats = { mob: Math.max(1, Math.min(5, Math.round(num(st.mob, def.mob)))), stealth: Math.max(1, Math.min(5, Math.round(num(st.stealth, def.stealth)))), power: Math.max(1, Math.min(5, Math.round(num(st.power, def.power)))) };
     s.base = { at: lastIndex(), st: 'intact', dmg: {}, where: cut(str(x?.where), 80), worn: false };
     return s;
+}
+/** Статы костюма (подвижность, скрытность, автономность): у старых костюмов — по виду, один раз. */
+export function suitStats(s) {
+    if (!s.stats || typeof s.stats !== 'object') s.stats = { ...(D.SUIT_STATS[s.kind] || D.SUIT_STATS.other) };
+    return s.stats;
+}
+/** Наноткань: раз в день истории мелкий урон по зонам сходит сам (−25%). */
+export function selfFix(s) {
+    if (!s?.selfFix) return false;
+    const day = storyDay() || 'x';
+    if (s.fixDay === day) return false;
+    const d = sdyn(s.id);
+    if (!d) return false;
+    const dmg = {};
+    for (const [z] of D.SZONES) dmg[z] = Math.max(0, (d.dmg[z] || 0) - 25);
+    setSdyn(s.id, { dmg });
+    s.fixDay = day;
+    touch();
+    return true;
 }
 export function addSuit(x, defaults = {}) { const s = x?.id && x?.base ? x : normSuit(x, defaults); M().suits.unshift(s); touch(); return s; }
 export function delSuit(id) {
@@ -623,7 +646,7 @@ export function normProject(x, defaults = {}) {
         mats: arr(x?.mats).filter(y => y && str(y.id)).map(y => ({ id: str(y.id), n: Math.max(1, Math.round(num(y.n, 1))) })),
         bans: cut(str(x?.bans), 200), lock: !!x?.lock, src: defaults.src || str(x?.src) || 'me', created: storyDay() || '',
         ty: num(x?.ty, hedyYear()), y: x?.y != null ? num(x.y) : null, key: str(x?.key), dead: !!x?.dead, deadWhy: cut(str(x?.deadWhy), 400),
-        spec: cut(str(x?.spec), 500), released: [], log: [], artur: str(x?.artur),
+        spec: cut(str(x?.spec), 900), released: [], log: [], artur: str(x?.artur),
     };
     const stage = Math.max(0, Math.min(D.STAGES.length - 1, Math.round(num(x?.stage, 0))));
     p.base = { at: lastIndex(), stage, pct: stage >= D.STAGES.length - 1 ? 100 : clamp(x?.pct ?? 0) };
@@ -746,8 +769,9 @@ export function protoTest(it) {
 }
 export function skidRoll(v, s = vdyn(v.id)) {
     const r = d20();
-    const sum = r + num(v.stats?.handling, 3) * 2 - Math.round((s?.dmg?.tires || 0) / 10);
-    return { roll: r, sum, ok: sum >= D.SKID_OK || r === 20, crash: r === 1 };
+    const grip = arr(v.ups).reduce((a, u) => a + num(u.x?.skid), 0);
+    const sum = r + num(v.stats?.handling, 3) * 2 - Math.round((s?.dmg?.tires || 0) / 10) * (grip ? 0.5 : 1) + grip;
+    return { roll: r, sum: Math.round(sum), ok: sum >= D.SKID_OK || r === 20, crash: r === 1 };
 }
 export function rangeSkill(who) {
     const n = norm(who);
@@ -765,6 +789,288 @@ export function rangeShoot(who, it) {
         shots.push(v);
     }
     return { who, item: it?.name || 'ствол', shots, total: shots.reduce((a, b) => a + b, 0) };
+}
+
+// ───────────── мастерская: апгрейды на кубике (0.4) ─────────────
+// Апгрейд — из каталога эпохи или готовое изобретение лабы. Кубик d20 + кто ставит, сложность, материалы, база;
+// исход как у опыта в лабе. Удалось — меняются характеристики и растёт ценность; запись в x.ups (снять — с откатом).
+
+export const targetById = (id) => itemById(id) || vehById(id) || suitById(id) || null;
+/** К чему апгрейд: gun | blade | gadget | armor | veh | suit, '' — нельзя. */
+export function upType(x) {
+    if (!x) return '';
+    if (vehById(x.id)) return 'veh';
+    if (suitById(x.id)) return 'suit';
+    if (D.isGun(x.kind)) return 'gun';
+    if (['knife', 'melee'].includes(x.kind)) return 'blade';
+    if (x.kind === 'armor') return 'armor';
+    if (x.gadget || ['gadget', 'nonlethal'].includes(x.kind)) return 'gadget';
+    return '';
+}
+const eraK = () => (storyYear() < 1950 ? D.ERA_PRICE_40S : 1);
+/** Ценность без апгрейдов: цена вещи, а нет — средняя по виду (в 1940-х — доллары сороковых). */
+export function baseValue(x) {
+    const p = priceNum(x?.price);
+    if (p > 0) return p;
+    const t = upType(x);
+    if (t === 'suit') return 0;
+    const k = t === 'veh' ? (D.BASE_VALUE[x.kind] ?? D.BASE_VALUE.vother) : (D.BASE_VALUE[x?.kind] ?? 0);
+    return Math.round(k * eraK());
+}
+export function valueOf(x) {
+    const base = baseValue(x);
+    const ups = arr(x?.ups).reduce((a, u) => a + num(u.val), 0);
+    return { base, ups, total: base + ups, priceless: base === 0 };
+}
+const nowY = () => storyYear() + 0.01;
+/** Каталог мастерской для этой вещи: по типу, эпохе, виду техники и питанию ствола. */
+export function upCatalog(x) {
+    const t = upType(x);
+    if (!t) return [];
+    const y = nowY();
+    const have = new Set(arr(x.ups).map(u => u.cat).filter(Boolean));
+    return D.UPGRADES.filter(u => u.t === t && u.from <= y && (!u.vk || u.vk.includes(x.kind)) && (!u.feeds || u.feeds.includes(x.feed)))
+        .map(u => ({ ...u, name: y < 1950 && u.name40 ? u.name40 : u.name, have: have.has(u.id), cost: Math.round(num(u.cost) * eraK()) }));
+}
+const LAB_OUT = {
+    gun: ['mod', 'weapon', 'ammo'], blade: ['mod', 'weapon'], gadget: ['mod', 'gadget', 'soft'],
+    armor: ['mod', 'armor'], veh: ['mod', 'armor', 'vehicle'], suit: ['mod', 'armor', 'gadget', 'med', 'suit'],
+};
+/** Готовые изобретения лабы, которые можно поставить на эту вещь как апгрейд. */
+export function upLab(x) {
+    const t = upType(x);
+    if (!t) return [];
+    // готовое, подходящее по виду; из лора (у них ключ) — только помеченные up: большие изобретения вроде Арта апгрейдом не ставятся
+    const loreUp = new Map(D.INVENTIONS.filter(i => i.up).map(i => [i.key, i]));
+    const fitsLore = (p) => { if (!p.key) return true; const inv = loreUp.get(p.key); return !!inv && (!inv.vk || (t === 'veh' && inv.vk.includes(x.kind))); };
+    return projectsNow().filter(p => !p.dead && projStage(p) >= D.STAGES.length - 1 && LAB_OUT[t].includes(p.out) && fitsLore(p) && !arr(p.released).includes(x.id))
+        .map(p => ({ id: `lab:${p.id}`, pid: p.id, name: p.name, lab: true, field: p.field, note: cut(p.spec || p.note, 220), focus: D.FIELD_FOCUS[p.field]?.[t] || D.FOCUS[t][0][0], diff: -1, cost: 0, adds: cut(p.spec || p.note, 160) }));
+}
+export function upSpec(x, key) {
+    if (!x || !key) return null;
+    if (key.startsWith('lab:')) return upLab(x).find(u => u.id === key) || null;
+    return upCatalog(x).find(u => u.id === key) || null;
+}
+const matOf = (name) => M().materials.find(m => norm(m.name).includes(norm(name)));
+export const matHave = (name) => { const m = matOf(name); return !!m && num(m.qty) > 0; };
+export function workerOf(who) {
+    if (!who) return null;
+    if (norm(who) === norm(D.MASTER)) return { master: true, share: 1, tag: D.MASTER };
+    return D.WORKERS.find(w => w.re.test(who)) || null;
+}
+const isHedy = (who) => /хеди|hedy|тео\b|теодор/i.test(String(who || ''));
+/** Цена работ: мастер со стороны — целиком, свои руки — детали (доля). */
+export function upCost(up, who) {
+    const w = workerOf(who);
+    const share = w?.master ? 1 : w ? num(w.share, 0.6) : 0.6;
+    return Math.round(num(up?.cost) * share / 10) * 10;
+}
+/** Поправки к кубику установки (потолок ±6, как у лабы). */
+export function upMods(x, up, who = '') {
+    const t = upType(x);
+    const out = [];
+    const add = (key, label, v, on = true) => out.push({ key, label, v, on });
+    if (up.lab) { const g = D.LAB_GEAR[era().id] ?? 0; if (g) add('gear', g > 0 ? 'оборудование базы' : 'лаба на коленке', g); }
+    const w = workerOf(who);
+    if (w?.master) add('who', D.MASTER, D.MASTER_SKILL);
+    else if (w && w[t]) add('who', `${short(who)}: ${w.tag}`, w[t]);
+    if (up.diff) add('diff', up.diff > 0 ? 'простая работа' : up.diff <= -3 ? 'очень сложная работа' : 'сложная работа', up.diff);
+    if (up.pid && isHedy(who)) add('own', 'своё изобретение', 1);
+    if (up.mat && !matHave(up.mat)) add('mat', `нет материала: ${up.mat}`, -3);
+    const k = clock();
+    if (k.hour != null && k.hour >= 1 && k.hour < 6) add('night', 'глубокая ночь, недосып', -2);
+    if (pregnant() && isHedy(who) && (up.lab || t === 'gun')) add('preg', 'осторожность (беременность)', -1);
+    if (t === 'veh') { if (vehDmg(x) >= 50) add('cond', 'машина побита', -1); }
+    else if (t === 'suit') { const d = sdyn(x.id); const avg = d ? D.SZONES.reduce((a, [z]) => a + (d.dmg[z] || 0), 0) / D.SZONES.length : 0; if (avg >= 50) add('cond', 'костюм побит', -1); }
+    else { const s = dyn(x.id); if (s && num(s.cond, 100) < 35) add('cond', 'вещь запущена', -1); }
+    add('focus', 'полная сосредоточенность', 2, false);
+    add('rush', 'спешка', -2, false);
+    return out;
+}
+const SIDE = { gun: 'reliab', blade: 'conceal', gadget: 'reliab', armor: 'conceal', veh: 'handling', suit: 'mob' };
+const goodWay = (k, v) => (k === 'noise' ? v < 0 : v > 0);
+/** Что даст апгрейд при этом исходе: сдвиги, доп. эффекты, прибавка ценности. */
+export function upEffect(x, up, out, focus = '') {
+    const t = upType(x);
+    if (['fail', 'boom'].includes(out)) return { ok: false, d: {}, extra: {}, val: 0, side: '' };
+    let d;
+    if (up.pid) { const f = focus || up.focus || D.FOCUS[t][0][0]; d = { [f]: f === 'noise' ? -1 : 1 }; }
+    else d = { ...((t === 'veh' ? up.vd : t === 'suit' ? up.sd : up.d) || {}) };
+    const pos = Object.keys(d).filter(k => goodWay(k, d[k]));
+    const main = pos[0] || '';
+    if (out === 'break' && main) d[main] += d[main] < 0 ? -1 : 1;
+    let side = '';
+    if (out === 'part') {
+        const big = pos.find(k => Math.abs(d[k]) >= 2);
+        if (big) d[big] += d[big] > 0 ? -1 : 1;
+        else { side = SIDE[t]; d[side] = (d[side] || 0) - 1; if (!d[side]) delete d[side]; }
+    }
+    const valX = { break: 1.5, win: 1, part: 0.6, odd: 1.1 }[out] ?? 1;
+    const base = baseValue(x);
+    const floor = (t === 'veh' ? 5000 : 2500) * eraK();
+    const val = t === 'suit' ? 0 : up.pid ? Math.round(Math.max(base * 0.25, floor) * valX) : Math.round(base * num(up.val) * valX);
+    const extra = {};
+    for (const k of ['capX', 'rangeX', 'charges', 'lvl', 'recharge', 'sys', 'selfFix', 'skid', 'burn']) if (up[k] != null) extra[k] = up[k];
+    if (out === 'break' && extra.charges) extra.charges += 1;
+    if (up.pid && t === 'suit') extra.sys = up.name;
+    return { ok: true, d, extra, val, side };
+}
+export const fxWord = (k, t) => (t === 'veh' ? { speed: 'скорость', handling: 'управляемость', armor: 'броня', range: 'запас хода' }[k] : t === 'suit' ? D.SUIT_STAT_RU[k] : { dmg: 'урон', acc: 'точность', range: 'дальность', conceal: 'скрытность', noise: 'шум', reliab: 'надёжность', max: 'заряды', lvl: 'класс брони' }[k]) || k;
+/** Подпись эффекта: «+1 точность, −2 шум, ёмкость ×1.5». */
+export function fxLine(fx, t) {
+    if (!fx?.ok) return '';
+    const bits = Object.entries(fx.d).filter(([, v]) => v).map(([k, v]) => (t === 'veh' && k === 'range' ? `запас хода ${v > 0 ? '+' : '−'}${Math.abs(v) * 25}%` : `${v > 0 ? '+' : '−'}${Math.abs(v)} ${fxWord(k, t)}`));
+    const e = fx.extra || {};
+    if (e.capX) bits.push(`ёмкость ×${e.capX}`);
+    if (e.rangeX) bits.push(`запас хода ×${e.rangeX}`);
+    if (e.charges) bits.push(`+${e.charges} зар.`);
+    if (e.lvl) bits.push(`класс брони +${e.lvl}`);
+    if (e.recharge) bits.push(`подзарядка: ${e.recharge}`);
+    if (e.sys) bits.push(`система «${e.sys}»`);
+    if (e.selfFix) bits.push('самопочинка');
+    if (e.skid) bits.push(`занос +${e.skid}`);
+    if (e.burn) bits.push(`засветка ${e.burn}%`);
+    return bits.join(', ');
+}
+export function rollUp(x, up, mods, o = {}) {
+    const t = upType(x);
+    const roll = o.roll ?? d20();
+    const on = mods.filter(m => m.on);
+    const modSum = Math.max(-MOD_CAP, Math.min(MOD_CAP, on.reduce((a, m) => a + m.v, 0)));
+    const sum = roll + modSum;
+    const w = workerOf(o.who);
+    const risky = !!(up.lab && (['gun', 'veh'].includes(t) || ['Щит', 'Ускорители', 'Поглотители'].includes(up.sys) || D.RISKY.includes(up.field))) || !!w?.risky;
+    let out = D.OUTCOMES.find(r => sum >= r.min) || D.OUTCOMES[D.OUTCOMES.length - 1];
+    if (roll === 20) out = D.OUTCOMES[0];
+    if (roll === 1) out = risky ? D.OUTCOMES[D.OUTCOMES.length - 1] : D.OUTCOMES.find(r => r.id === 'fail');
+    if (out.id === 'boom' && !risky) out = D.OUTCOMES.find(r => r.id === 'fail');
+    const old = storyYear() < 1950;
+    const quirk = out.id === 'odd' ? rnd((old && D.QUIRKS[`${t}40`]) || D.QUIRKS[t] || D.QUIRKS.gadget) : '';
+    return { xid: x.id, t, up: { ...up }, who: o.who || '', focus: o.focus || '', roll, mods: on.map(m => ({ label: m.label, v: m.v })), modSum, sum, out: out.id, name: out.name, flavor: rnd(D.UP_FLAVOR[out.id] || ['']), quirk, fx: upEffect(x, up, out.id, o.focus || ''), cost: upCost(up, o.who) };
+}
+function upBump(x, t, k, v) {
+    if (!v) return 0;
+    const step = (old, lo = 1, hi = 5) => { const nv = Math.max(lo, Math.min(hi, Math.round(old + v))); return nv; };
+    if (t === 'veh') {
+        if (k === 'range') { const old = num(x.stats.range, 600); const nv = Math.max(0, Math.round(old * (1 + 0.25 * v))); x.stats.range = nv; return nv - old; }
+        const old = num(x.stats[k], 3); x.stats[k] = step(old); return x.stats[k] - old;
+    }
+    if (t === 'suit') {
+        if (k === 'armor') { const old = num(x.armor, 3); x.armor = step(old); return x.armor - old; }
+        const st = suitStats(x); const old = num(st[k], 3); st[k] = step(old); return st[k] - old;
+    }
+    if (k === 'max') { x.gadget ||= { does: '', max: 0, recharge: '', side: '', limit: '', reliab: 4, proto: false }; const old = num(x.gadget.max); x.gadget.max = step(old, 0, 99); const got = x.gadget.max - old; const s = dyn(x.id); if (s && got > 0) setDyn(x.id, { charges: Math.min(x.gadget.max, num(s.charges) + got) }); return got; }
+    if (k === 'lvl') { x.armor ||= { level: 2, covers: 'корпус' }; const old = num(x.armor.level, 3); x.armor.level = step(old); return x.armor.level - old; }
+    if (k === 'reliab' && x.gadget) { const old = num(x.gadget.reliab, 3); x.gadget.reliab = step(old); if (x.gadget.reliab >= 4) x.gadget.proto = false; return x.gadget.reliab - old; }
+    x.stats ||= {};
+    const old = num(x.stats[k], 3); x.stats[k] = step(old); return x.stats[k] - old;
+}
+function upUnbump(x, t, k, v) {
+    if (!v) return;
+    if (t === 'veh' && k === 'range') { x.stats.range = Math.max(0, num(x.stats.range) - v); return; }
+    if (t === 'veh') { x.stats[k] = Math.max(1, Math.min(5, num(x.stats[k], 3) - v)); return; }
+    if (t === 'suit') { if (k === 'armor') x.armor = Math.max(1, Math.min(5, num(x.armor, 3) - v)); else { const st = suitStats(x); st[k] = Math.max(1, Math.min(5, num(st[k], 3) - v)); } return; }
+    if (k === 'max' && x.gadget) { x.gadget.max = Math.max(0, num(x.gadget.max) - v); const s = dyn(x.id); if (s && num(s.charges) > x.gadget.max) setDyn(x.id, { charges: x.gadget.max }); return; }
+    if (k === 'lvl' && x.armor) { x.armor.level = Math.max(1, Math.min(5, num(x.armor.level, 3) - v)); return; }
+    if (k === 'reliab' && x.gadget) { x.gadget.reliab = Math.max(1, Math.min(5, num(x.gadget.reliab, 3) - v)); return; }
+    if (x.stats) x.stats[k] = Math.max(1, Math.min(5, num(x.stats[k], 3) - v));
+}
+function upBoom(x, t) {
+    if (t === 'veh') {
+        const zs = D.zonesOf(x.kind); const [z, zt] = rnd(zs); const s = vdyn(x.id);
+        if (s) setVdyn(x.id, { dmg: { ...s.dmg, [z]: Math.min(100, (s.dmg[z] || 0) + 40) } });
+        return `${zt}: +40% урона`;
+    }
+    if (t === 'suit') {
+        const [z, zt] = rnd(D.SZONES); const d = sdyn(x.id);
+        if (d) setSdyn(x.id, { dmg: { ...d.dmg, [z]: Math.min(100, (d.dmg[z] || 0) + 35) } });
+        const sy = x.systems.length ? rnd(x.systems) : null;
+        if (sy) sy.pct = clamp(num(sy.pct, 100) - 30);
+        return `${zt}: +35% урона${sy ? `, «${sy.name}» −30%` : ''}`;
+    }
+    const s = dyn(x.id);
+    if (s) setDyn(x.id, { cond: Math.max(0, num(s.cond, 100) - 40) });
+    if (t === 'gadget' && x.gadget) x.gadget.reliab = Math.max(1, num(x.gadget.reliab, 3) - 1);
+    return 'состояние −40%';
+}
+/** Применить бросок: статы, ценность, видимые списки (моды, тюнинг, апгрейды), деньги и материал. */
+export async function applyUp(r, { scene = false, pay: doPay = false, acc = '', payer = '' } = {}) {
+    const x = targetById(r.xid);
+    if (!x) throw new Error('Этой вещи больше нет');
+    const t = r.t, up = r.up;
+    let paid = '';
+    const due = r.out === 'fail' ? Math.round(r.cost / 20) * 10 : r.cost;   // провал — детали пропали наполовину
+    if (doPay && due > 0) {
+        const res = await pay(due, `Мастерская: ${up.name} → ${x.name}`, t === 'veh' ? 'транспорт' : 'оружие', acc, payer || x.owner || x.who || '');
+        if (!res.ok && res.why && !/не найден/.test(res.why)) throw new Error(res.why);
+        paid = res.ok ? `−${money(due)}${res.name ? ` · ${res.name}` : ''}` : res.why;
+    }
+    if (up.mat && ['break', 'win', 'part', 'odd', 'boom'].includes(r.out)) { const m = matOf(up.mat); if (m && num(m.qty) > 0) m.qty = Math.max(0, num(m.qty) - 1); }
+    let rec = null, harm = '';
+    if (r.fx.ok) {
+        rec = { id: uid(), cat: up.pid ? '' : up.id, pid: up.pid || '', name: cut(up.name, 60), d: {}, x: {}, val: num(r.fx.val), quirk: r.quirk || '', out: r.out, by: r.who || '', at: storyDay(), adds: cut(up.adds || '', 160) };
+        for (const [k, v] of Object.entries(r.fx.d)) { const got = upBump(x, t, k, v); if (got) rec.d[k] = got; }
+        const e = r.fx.extra || {};
+        if (e.capX && x.cap) { rec.x.capFrom = x.cap; x.cap = Math.max(1, Math.round(x.cap * e.capX)); }
+        if (e.rangeX && t === 'veh') { const old = num(x.stats.range, 600); x.stats.range = Math.round(old * e.rangeX); rec.x.km = x.stats.range - old; }
+        if (e.charges) { const got = upBump(x, t, 'max', e.charges); if (got) rec.x.charges = got; if (x.gadget && !x.gadget.does && up.adds) x.gadget.does = up.adds; }
+        if (e.lvl) { const got = upBump(x, t, 'lvl', e.lvl); if (got) rec.x.lvl = got; }
+        if (e.recharge && x.gadget) { rec.x.recharge = x.gadget.recharge || ''; x.gadget.recharge = e.recharge; }
+        if (e.sys && t === 'suit') { const sy = { id: uid(), name: cut(e.sys, 60), pct: 100 }; x.systems.push(sy); rec.x.sysId = sy.id; }
+        if (e.selfFix && t === 'suit') { x.selfFix = true; rec.x.selfFix = true; }
+        if (e.skid) rec.x.skid = e.skid;
+        if (e.burn && t === 'veh') { const s = vdyn(x.id); if (s) setVdyn(x.id, { burn: Math.max(0, num(s.burn) + e.burn) }); }
+        x.ups = [...arr(x.ups), rec];
+        if (t === 'veh') x.mods.push({ name: rec.name, from: up.pid ? 'лаба' : 'мастерская', up: rec.id });
+        else if (t === 'suit') x.upgrades.push({ name: rec.name, from: up.pid ? 'лаба' : 'мастерская', up: rec.id });
+        else if (!x.mods.includes(rec.name)) x.mods.push(rec.name);
+        if (up.pid) { const p = projById(up.pid); if (p) { if (!p.released.includes(x.id)) p.released.push(x.id); projLog(p, `Поставлено на «${x.name}»${r.out === 'break' ? ' — лучше расчёта' : ''}`, 'stage'); } }
+    } else if (r.out === 'boom') harm = upBoom(x, t);
+    const line = `${up.name} → ${x.name}: ${r.name.toLowerCase()}${r.fx.ok ? ` (${fxLine(r.fx, t)})` : ''}${harm ? ` — ${harm}` : ''}`;
+    logFeed(`Мастерская: ${line}`, 'lab');
+    if (scene) arm('up', `[Мастерская (Ангар · кубик): ${r.who ? `${short(r.who)} ставит` : 'ставят'} «${up.name}» на «${x.name}» — ${r.name.toLowerCase()}: ${r.flavor}${r.quirk ? `; с тех пор ${r.quirk}` : ''}${harm ? `; ${harm}` : ''}. Покажи это делом, звуком и реакцией людей. Исход решён кубиком, не меняй его; цифр и кубиков не называй.]`, { key: x.id });
+    touch();
+    return { rec, paid, harm };
+}
+/** Снять апгрейд: характеристики возвращаются, ценность падает, изобретение снова свободно. */
+export function removeUp(x, recId) {
+    const t = upType(x);
+    const rec = arr(x?.ups).find(u => u.id === recId);
+    if (!rec) return false;
+    for (const [k, v] of Object.entries(rec.d || {})) upUnbump(x, t, k, v);
+    const e = rec.x || {};
+    if (e.capFrom != null) x.cap = e.capFrom;
+    if (e.km) x.stats.range = Math.max(0, num(x.stats.range) - e.km);
+    if (e.charges) upUnbump(x, t, 'max', e.charges);
+    if (e.lvl) upUnbump(x, t, 'lvl', e.lvl);
+    if (e.recharge != null && x.gadget) x.gadget.recharge = e.recharge;
+    if (e.sysId) x.systems = x.systems.filter(y => y.id !== e.sysId);
+    x.ups = arr(x.ups).filter(u => u.id !== recId);
+    if (e.selfFix) x.selfFix = x.ups.some(u => u.x?.selfFix);
+    if (t === 'veh') x.mods = x.mods.filter(m => m.up !== recId);
+    else if (t === 'suit') x.upgrades = x.upgrades.filter(m => m.up !== recId);
+    else { const i = x.mods.indexOf(rec.name); if (i >= 0) x.mods.splice(i, 1); }
+    if (rec.pid) { const p = projById(rec.pid); if (p) p.released = p.released.filter(id => id !== x.id); }
+    touch();
+    return true;
+}
+/** Что реально дал поставленный апгрейд (для листа вещи). */
+export function recLine(u, t) {
+    const d = u?.d || {}, e = u?.x || {};
+    const bits = Object.entries(d).filter(([, v]) => v).map(([k, v]) => (t === 'veh' && k === 'range' ? `запас хода ${v > 0 ? '+' : '−'}${Math.abs(v)} км` : `${v > 0 ? '+' : '−'}${Math.abs(v)} ${fxWord(k, t)}`));
+    if (e.capFrom != null) bits.push(`ёмкость с ${e.capFrom}`);
+    if (e.km) bits.push(`запас хода +${e.km} км`);
+    if (e.charges) bits.push(`+${e.charges} зар.`);
+    if (e.lvl) bits.push(`класс брони +${e.lvl}`);
+    if (e.recharge != null) bits.push('быстрая подзарядка');
+    if (e.sysId) bits.push('своя система');
+    if (e.selfFix) bits.push('самопочинка');
+    if (e.skid) bits.push(`занос +${e.skid}`);
+    return bits.join(', ');
+}
+/** Апгрейды с тем, что должна знать модель: «Глок 19: глушитель — хлопок вместо грохота». */
+export function upNotes(x, n = 3) {
+    return arr(x?.ups).filter(u => u.adds || u.quirk).slice(0, n).map(u => `${u.name}${u.adds ? ` — ${u.adds}` : ''}${u.quirk ? `; странность: ${u.quirk}` : ''}`);
 }
 
 // ───────────── разовые заметки модели (на один ответ) ─────────────
@@ -897,7 +1203,8 @@ function vehLine() {
         const near = (s.driver && here.some(n => same(n, s.driver))) || (l && s.where && (l.includes(norm(s.where)) || norm(s.where).includes(l)));
         if (!near) continue;
         const dmg = D.zonesOf(v.kind).filter(([z]) => (s.dmg[z] || 0) >= 25).map(([z, t]) => `${t} ${s.dmg[z] >= 70 ? 'разбит' : 'побит'}`);
-        out.push(`${v.name}${v.model ? ` (${v.model})` : ''}${s.driver ? `, за рулём ${short(s.driver)}` : ''}: ${D.FUEL[v.fuelType] || 'бак'} ${s.fuel}% (≈${kmLeft(v, s)} км)${dmg.length ? `, ${dmg.join(', ')}` : ''}${s.burn >= 50 ? ', засвечена — её ищут' : ''}${v.mods.length ? `; тюнинг: ${v.mods.slice(0, 3).map(x => x.name).join(', ')}` : ''}`);
+        const un = upNotes(v, 3);
+        out.push(`${v.name}${v.model ? ` (${v.model})` : ''}${s.driver ? `, за рулём ${short(s.driver)}` : ''}: ${D.FUEL[v.fuelType] || 'бак'} ${s.fuel}% (≈${kmLeft(v, s)} км)${dmg.length ? `, ${dmg.join(', ')}` : ''}${s.burn >= 50 ? ', засвечена — её ищут' : ''}${un.length ? `; тюнинг: ${un.join('; ')}` : v.mods.length ? `; тюнинг: ${v.mods.slice(0, 3).map(x => x.name).join(', ')}` : ''}`);
         if (out.length >= 2) break;
     }
     return out;
@@ -910,7 +1217,10 @@ function suitLines() {
         if (!d || !d.worn || !here.some(n => same(n, s.who))) continue;
         const dz = D.SZONES.filter(([z]) => (d.dmg[z] || 0) >= 25).map(([z, t]) => `${t} ${d.dmg[z] >= 70 ? 'разбит' : 'повреждён'}`);
         const sys = s.systems.filter(y => num(y.pct, 100) < 60).map(y => `${y.name} ${y.pct}%`);
-        out.push(`${short(s.who)} в костюме «${s.name}»${dz.length ? `: ${dz.join(', ')}` : ''}${sys.length ? `; системы: ${sys.join(', ')}` : ''}`);
+        const st = suitStats(s);
+        const un = upNotes(s, 3);
+        const fine = [st.mob >= 4 ? 'подвижный' : st.mob <= 1 ? 'тяжёлый, неповоротливый' : '', st.stealth >= 4 ? 'почти незаметный' : ''].filter(Boolean);
+        out.push(`${short(s.who)} в костюме «${s.name}» (броня ${s.armor}/5 — ${D.ARMOR_STOPS[Math.max(1, Math.min(5, num(s.armor, 3)))]}${fine.length ? `; ${fine.join(', ')}` : ''})${dz.length ? `: ${dz.join(', ')}` : ''}${sys.length ? `; системы: ${sys.join(', ')}` : ''}${un.length ? `; апгрейды: ${un.join('; ')}` : ''}`);
     }
     return out;
 }
@@ -930,6 +1240,8 @@ export function promptNote(type) {
         if (fight) {
             const g = here.flatMap(gadgetLines);
             if (g.length) parts.push(`[Гаджеты: ${g.join(' | ')}]`);
+            const ups = here.flatMap(w => carried(w).filter(it => arr(it.ups).length).slice(0, 3).map(it => `«${it.name}» (${short(w)}): ${upNotes(it, 2).join('; ') || it.ups.map(u => u.name).join(', ')}`));
+            if (ups.length) parts.push(`[Апгрейды: ${ups.slice(0, 4).join(' | ')}]`);
             const kinds = [...new Set(here.flatMap(w => carried(w)).filter(it => D.WOUND[it.kind] && (dyn(it.id)?.hands || D.isGun(it.kind))).map(it => it.kind))];
             if (kinds.length) parts.push(`[Если попали — ${kinds.slice(0, 4).map(k => D.WOUND[k]).join('; ')}. Бронежилет не делает неуязвимым: синяк, треснувшее ребро, сбитое дыхание.]`);
         }
@@ -1400,23 +1712,171 @@ async function historyText() {
     return parts.join('\n\n');
 }
 
+// ───────────── заделы автора: её сюрпризы не трогать (как в Доме) ─────────────
+
+let planMemo = { at: 0, v: { titles: [], re: null } };
+/** Записи лорбуков «Задел: …» — их ключи (видеоигры и т.п.) не пускают идеи инсайтов и сплава. */
+export async function planKeys() {
+    if (Date.now() - planMemo.at < 60000) return planMemo.v;
+    const titles = [], keys = [];
+    try {
+        const wi = await import('/scripts/world-info.js');
+        for (const b of [...(wi.world_names || [])]) {
+            let data = null;
+            try { data = await (ctx().loadWorldInfo ? ctx().loadWorldInfo(b) : wi.loadWorldInfo(b)); } catch { continue; }
+            let list = Object.values(data?.entries || {});
+            try { if (typeof window.SacredTimeline?.visible === 'function') list = await window.SacredTimeline.visible(list, b); } catch { /* без ядра — всё */ }
+            for (const e of list) {
+                if (!e || e.disable || !/задел/i.test(String(e.comment || ''))) continue;
+                titles.push(cut(str(e.comment), 80));
+                for (const k of arr(e.key)) { const q = str(k).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); if (q.length >= 3) keys.push(q); }
+            }
+        }
+    } catch { /* без лорбуков */ }
+    planMemo = { at: Date.now(), v: { titles: titles.slice(0, 12), re: keys.length ? new RegExp(keys.join('|'), 'i') : null } };
+    return planMemo.v;
+}
+export function _setPlanKeys(v) { planMemo = { at: Date.now(), v: { titles: v?.titles || [], re: v?.re || null } }; }
+const planHit = (pk, ...t) => !!pk?.re && pk.re.test(t.filter(Boolean).join(' '));
+
 /** Кубик инсайтов: d20 → жанр → короткий брейншторм умной модели. p — проект (инсайт к нему), x — вещь/техника/костюм. */
+export function insightAsk(g) {
+    const e = era();
+    if (e.id === 'ssr' && g.ask40) return g.ask40;
+    if (e.id === 'aim' && g.aim) return g.aim;
+    return g.ask;
+}
 export async function insights(roll, { p = null, x = null, ask = '' } = {}) {
     const g = D.insightOf(roll);
-    const ps = projectsNow().filter(q => !q.dead).slice(0, 14).map(q => `${q.name} (${D.STAGES[projStage(q)]}, ${D.fieldName(q.field)})`);
+    const pk = await planKeys();
+    const ps = projectsNow().filter(q => !q.dead).slice(0, 16).map(q => `${q.name} (${D.STAGES[projStage(q)]}, ${D.fieldName(q.field)})`);
     const mats = M().materials.slice(0, 10).map(m => `${m.name} ×${m.qty}`);
-    const gear = [...M().items.filter(it => it.kind !== 'ammo').slice(0, 10).map(it => it.name), ...M().vehicles.slice(0, 4).map(v => v.name), ...M().suits.slice(0, 4).map(s => s.name)];
-    const focus = p ? `Инсайт к проекту «${p.name}» (${D.fieldName(p.field)}, ${D.STAGES[projStage(p)]}): ${p.note || '—'}${blockedBy(p).length ? `; ждёт: ${blockedBy(p).map(q => q.name).join(', ')}` : ''}.` : x ? `Инсайт к «${x.name}»: что с ним можно сделать в лабе — мод, апгрейд, неожиданное применение.` : '';
-    const sys = `Ты — внутренний голос Хеди Барлоу в лаборатории: гениальный инженер, мутант с трансмутацией энергии, дочь Тони Старка, директор А.И.М. Брейншторм: 4 идеи, каждая коротко — заголовок до 6 слов и 1–2 предложения сути, без воды и лекций. Жанр броска — «${g.name}»: ${g.ask}. Держи её лор, эпоху и то, что у неё реально есть; можно смешно. По-русски.
-Ответ — только JSON: {"ideas":[{"title":"","text":"","field":"energy|bio|tech|weapon|cyber|chem|space|other","out":"gadget|weapon|ammo|mod|armor|suit|vehicle|med|soft|other"}]}`;
+    const gear = [...M().items.filter(it => it.kind !== 'ammo').slice(0, 12).map(it => `${it.name}${it.mods?.length ? ` [${it.mods.slice(0, 2).join(', ')}]` : ''}`), ...M().vehicles.slice(0, 4).map(v => v.name), ...M().suits.slice(0, 4).map(s => s.name)];
+    const focus = p ? `Инсайт к проекту «${p.name}» (${D.fieldName(p.field)}, ${D.STAGES[projStage(p)]}): ${p.note || '—'}${blockedBy(p).length ? `; ждёт: ${blockedBy(p).map(q => q.name).join(', ')}` : ''}.` : x ? `Инсайт к «${x.name}»: что с ним можно сделать в лабе — апгрейд, мод, неожиданное применение, с чем его сплавить.` : '';
+    const sys = `Ты — внутренний голос Хеди Барлоу в лаборатории: гениальный инженер, мутант с трансмутацией энергии${era().id === 'aim' ? ', дочь Тони Старка, директор А.И.М.' : ''}. Брейншторм: 4 идеи. Каждая — не «улучшить X», а конкретная вещь с фишкой: что делает, на какой неочевидной хитрости стоит, как это выглядит в сцене и чем за неё платишь (предел, риск, побочка). Опирайся на то, что у неё реально есть: называй её проекты, материалы и железо. Одна из четырёх — неожиданная: такая, чтобы она засмеялась или сказала «хм». Жанр броска — «${g.name}»: ${insightAsk(g)}. ${STYLE} Без лекций и воды, можно смешно.${pk.titles.length ? ` Заделы автора — НЕ трогать даже намёком: ${pk.titles.join('; ')}.` : ''}
+Ответ — только JSON: {"ideas":[{"title":"до 6 слов","text":"что делает и в чём фишка — 1–2 предложения","scene":"как это выглядит в сцене — одна фраза","cost":"чем платишь — коротко","base":"на чём стоит: её проект или вещь, или пусто","field":"energy|bio|tech|weapon|cyber|chem|space|other","out":"gadget|weapon|ammo|mod|armor|suit|vehicle|med|soft|other"}]}`;
     const usr = `${ERA_LINE()}\n${focus}\nПроекты: ${ps.join('; ') || 'нет'}.\nМатериалы: ${mats.join(', ') || 'нет'}.\nЖелезо: ${gear.join(', ') || 'нет'}.${ask ? `\nОна думает о: ${ask}` : ''}`;
-    const j = await askJson(sys, usr, 1800, 'инсайт', (y) => Array.isArray(y?.ideas) && y.ideas.length);
-    const ideas = arr(j.ideas).filter(y => str(y?.title) || str(y?.text)).slice(0, 5).map(y => ({ id: uid(), title: cut(str(y.title), 60), text: cut(str(y.text), 260), field: str(y.field), out: str(y.out) }));
+    const j = await askJson(sys, usr, 2200, 'инсайт', (y) => Array.isArray(y?.ideas) && y.ideas.length);
+    const ideas = arr(j.ideas).filter(y => (str(y?.title) || str(y?.text)) && !planHit(pk, y.title, y.text, y.scene, y.base)).slice(0, 5)
+        .map(y => ({ id: uid(), title: cut(str(y.title), 60), text: cut(str(y.text), 300), scene: cut(str(y.scene), 200), cost: cut(str(y.cost), 140), base: cut(str(y.base), 80), field: str(y.field), out: str(y.out) }));
     const m = M();
     m.insights.unshift({ id: uid(), at: clock().date || storyDay(), roll, kind: g.id, for: p?.name || x?.name || '', ideas });
     m.insights = m.insights.slice(0, 30);
     touch();
     return { g, ideas };
+}
+
+// ───────────── сплав: две-три идеи в одну крутую вещь (0.4) ─────────────
+// Части — проекты, идеи из инсайтов, вещи, техника, костюмы. d20 + поправки → исход; умная модель сводит части
+// в одно изобретение под этот исход. Прорыв и успех — сразу прототип; провал — урок; бабах — авария в лабе.
+
+const FIELD_OF_T = { gun: 'weapon', blade: 'weapon', gadget: 'tech', armor: 'tech', veh: 'space', suit: 'tech' };
+/** Ссылка на часть → {kind, id, set, name, text, field, ready, raw}. */
+export function fusePart(ref) {
+    if (!ref) return null;
+    if (ref.kind === 'proj') { const p = projById(ref.id); return p && !p.dead ? { kind: 'proj', id: p.id, name: p.name, text: p.spec || p.note || '', field: p.field, ready: projStage(p) >= D.STAGES.length - 1, raw: projStage(p) === 0 } : null; }
+    if (ref.kind === 'idea') { const set = M().insights.find(q => q.id === ref.set); const y = set?.ideas.find(q => q.id === ref.id); return y ? { kind: 'idea', id: y.id, set: set.id, name: y.title || cut(y.text, 40), text: y.text, field: D.FIELDS.some(f => f[0] === y.field) ? y.field : 'other', ready: false, raw: true } : null; }
+    const x = targetById(ref.id);
+    if (!x) return null;
+    const t = upType(x);
+    return { kind: vehById(x.id) ? 'veh' : suitById(x.id) ? 'suit' : 'item', id: x.id, name: x.name, text: x.desc || x.look || x.note || x.gadget?.does || '', field: FIELD_OF_T[t] || 'other', ready: true, raw: false };
+}
+export function fuseMods(parts, helpers = []) {
+    const out = [];
+    const add = (key, label, v, on = true) => out.push({ key, label, v, on });
+    const g = D.LAB_GEAR[era().id] ?? 0;
+    if (g) add('gear', g > 0 ? 'оборудование базы' : 'лаба на коленке', g);
+    if (parts.length && parts.every(q => q.ready)) add('ready', 'всё уже работает', 2);
+    else if (parts.some(q => q.raw)) add('raw', 'сырьё: голая идея', -1);
+    const fields = new Set(parts.map(q => q.field || 'other'));
+    if (parts.length >= 2 && fields.size === 1) add('same', 'одна область', 1);
+    if (fields.size >= 3) add('wide', 'три области сразу', -1);
+    if (parts.length >= 3) add('three', 'три в одно — сложнее', -1);
+    for (const h of helpers) { const f = D.FUSE_HELP.find(q => q.re.test(h)); if (f && !out.some(o => o.label === f.label)) add(f.risky ? 'oberin' : 'help', f.label, f.v); }
+    const k = clock();
+    if (k.hour != null && k.hour >= 1 && k.hour < 6) add('night', 'глубокая ночь, недосып', -2);
+    try { const st = A?.senses?.stones?.(); if (st && num(st.lvl) >= 2) add('stones', 'Камни неспокойны', -2); } catch { /* */ }
+    const risky = parts.some(q => D.RISKY.includes(q.field));
+    if (pregnant()) add('preg', risky ? 'беременность: Амара против' : 'осторожность (беременность)', risky ? -2 : -1);
+    add('focus', 'полная сосредоточенность', 2, false);
+    add('rush', 'спешка', -2, false);
+    return out;
+}
+export function rollFuse(parts, mods, o = {}) {
+    const e = era();
+    const roll = o.roll ?? d20();
+    const on = mods.filter(x => x.on);
+    const modSum = Math.max(-MOD_CAP, Math.min(MOD_CAP, on.reduce((a, x) => a + x.v, 0)));
+    const sum = roll + modSum;
+    const risky = parts.some(q => D.RISKY.includes(q.field)) || on.some(x => x.key === 'oberin');
+    let out = D.OUTCOMES.find(r => sum >= r.min) || D.OUTCOMES[D.OUTCOMES.length - 1];
+    if (roll === 20) out = D.OUTCOMES[0];
+    if (roll === 1) out = risky ? D.OUTCOMES[D.OUTCOMES.length - 1] : D.OUTCOMES.find(r => r.id === 'fail');
+    if (out.id === 'boom' && !risky) out = D.OUTCOMES.find(r => r.id === 'fail');
+    if (on.some(x => x.key === 'oberin') && roll <= 4 && out.id !== 'boom') out = D.OUTCOMES[D.OUTCOMES.length - 1];
+    const fl = (e.id === 'ssr' && D.FLAVOR_40S[out.id]) || D.FLAVOR[out.id] || [''];
+    return { parts: parts.map(q => ({ ...q })), roll, mods: on.map(x => ({ label: x.label, v: x.v })), modSum, sum, out: out.id, name: out.name, flavor: rnd(fl) };
+}
+const KIND_RU = { proj: 'проект', idea: 'идея', item: 'вещь', veh: 'техника', suit: 'костюм' };
+const andList = (l) => (l.length > 1 ? `${l.slice(0, -1).join(', ')} и ${l[l.length - 1]}` : l[0] || '');
+const dot = (t) => { t = str(t); return t && !/[.!?…»]$/.test(t) ? `${t}.` : t; };
+/** Сплав по броску: новый проект (или урок, или авария). */
+export async function fuse(r, { ask = '', helpers = [], scene = false } = {}) {
+    const parts = r.parts;
+    const pk = await planKeys();
+    const counts = {};
+    for (const q of parts) counts[q.field || 'other'] = (counts[q.field || 'other'] || 0) + 1;
+    const field = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'other';
+    const names = parts.map(q => q.name);
+    let j = null;
+    if (r.out !== 'boom') {
+        const sys = `Ты — Хеди Барлоу в лаборатории: гениальный инженер, мутант с трансмутацией энергии${era().id === 'aim' ? ', дочь Тони Старка, директор А.И.М.' : ''}. Сплав: из частей ниже собери ОДНО новое изобретение — не «два в одном», а одну вещь с новой сутью, которой не было ни у одной части. Исход кубика — «${r.name}»: ${D.FUSE_ASK[r.out] || D.FUSE_ASK.win}. ${STYLE} Коротко и конкретно, можно смешно.${pk.titles.length ? ` Заделы автора — НЕ трогать даже намёком: ${pk.titles.join('; ')}.` : ''}
+Ответ — только JSON: {"name":"до 5 слов","note":"2–3 предложения: что это и как работает","spec":"что делает готовое — ровно, с пределом","field":"energy|bio|tech|weapon|cyber|chem|space|other","out":"gadget|weapon|ammo|mod|armor|suit|vehicle|med|soft|other","quirk":"","scene":"одна фраза — как это выглядит в сцене"}`;
+        const usr = `${ERA_LINE()}\nЧасти:\n${parts.map((q, i) => `${i + 1}. ${q.name} (${KIND_RU[q.kind] || q.kind}, ${D.fieldName(q.field)}${q.ready ? ', уже работает' : ''}): ${cut(q.text, 320) || '—'}`).join('\n')}${helpers.length ? `\nПомогают: ${helpers.join(', ')}` : ''}${ask ? `\nОна хочет: ${ask}` : ''}`;
+        try { j = await askJson(sys, usr, 1600, 'сплав', (y) => y && str(y.name)); } catch (e) { console.warn('[Ангар] сплав', e); j = null; }
+        if (j && planHit(pk, j.name, j.note, j.spec, j.quirk, j.scene)) j = null;
+    }
+    const fall = { name: names.join(' × '), note: `Сплав: ${names.join(' + ')}.`, spec: '', field, out: 'gadget', quirk: r.out === 'odd' ? rnd(D.QUIRKS.gadget) : '', scene: '' };
+    const res = { ...fall, ...Object.fromEntries(Object.entries(j || {}).filter(([, v]) => str(v))) };
+    const logLine = `Сплав (d20 ${r.roll} → ${r.sum}, ${r.name.toLowerCase()}): ${names.join(' + ')}`;
+    const m = M();
+    const markIdeas = () => { for (const q of parts) if (q.kind === 'idea') { const y = m.insights.find(z => z.id === q.set)?.ideas.find(z => z.id === q.id); if (y) y.used = true; } };
+    if (r.out === 'fail') {
+        const lesson = { id: uid(), title: cut(str(res.name) || 'Урок', 60), text: cut(str(res.note), 300), field: res.field, out: res.out };
+        m.insights.unshift({ id: uid(), at: clock().date || storyDay(), roll: r.roll, kind: 'fuse', for: names.join(' + '), ideas: [lesson] });
+        m.insights = m.insights.slice(0, 30);
+        logFeed(`${logLine} — не срослось`, 'lab');
+        touch();
+        return { lesson };
+    }
+    if (r.out === 'boom') {
+        const hurt = [];
+        for (const q of parts) {
+            if (q.kind === 'proj') { const p = projById(q.id); if (p && projStage(p) < D.STAGES.length - 1) { bumpProject(p, -10, 'авария при сплаве'); hurt.push(p.name); } }
+            else if (q.kind === 'item') { const s = dyn(q.id); if (s) { setDyn(q.id, { cond: Math.max(0, num(s.cond, 100) - 20) }); hurt.push(q.name); } }
+        }
+        const text = rnd((era().id === 'ssr' && D.FLAVOR_40S.boom) || D.FLAVOR.boom);
+        logFeed(`${logLine} — бабах: ${text}`, 'lab');
+        if (scene) arm('lab', `[Лаборатория: попытка сплавить ${andList(names)} кончается так — бабах: ${text}. Покажи это действиями, звуком и реакцией людей. Исход решён кубиком; цифр и кубиков не называй.]`, { key: 'fuse' });
+        touch();
+        return { boom: text, hurt };
+    }
+    const ready = parts.every(q => q.ready);
+    const st = (D.FUSE_STAGE[r.out] || [1, 1])[ready ? 0 : 1];
+    const out = D.OUT_TYPES.some(o => o[0] === res.out) ? res.out : 'gadget';
+    const p = addProject({ name: cut(str(res.name), 90), field: D.FIELDS.some(f => f[0] === res.field) ? res.field : field, out, note: [str(res.note), res.quirk ? `Странность: ${str(res.quirk)}` : ''].filter(Boolean).join(' '), spec: str(res.spec), team: helpers, ty: hedyYear(), stage: st }, { src: 'fusion' });
+    p.fused = names;
+    p.needs = parts.filter(q => q.kind === 'proj' && !q.ready).map(q => q.id);
+    const mats = new Map();
+    for (const q of parts) if (q.kind === 'proj') for (const x of arr(projById(q.id)?.mats)) mats.set(x.id, Math.max(mats.get(x.id) || 0, x.n));
+    p.mats = [...mats.entries()].map(([id, n]) => ({ id, n }));
+    if (res.scene) p.scene = cut(str(res.scene), 200);
+    projLog(p, logLine, r.out, { roll: r.roll, sum: r.sum });
+    markIdeas();
+    logFeed(`${logLine} → «${p.name}» (${D.STAGES[st]})`, 'lab');
+    if (scene) arm('lab', `[Лаборатория: Хеди сплавляет ${andList(names)} в одно — «${p.name}». Исход — ${r.name.toLowerCase()}: ${r.flavor}.${res.scene ? ` ${dot(res.scene)}` : ''} Покажи это действиями и реакцией людей. Исход решён кубиком; цифр и кубиков не называй.]`, { key: p.id });
+    touch();
+    return { p };
 }
 
 /** Заполнить вещь по названию: «Глок 19 с глушителем» → характеристика и описание. */
@@ -1454,43 +1914,63 @@ export async function draw(kind, x) {
 
 // ───────────── старт чата: лор и переезд лабы Арта ─────────────
 
-/** Изобретения, техника и костюмы из лора — раз на чат, по её году жизни. */
+/** Изобретения, техника и костюмы из лора — по её году жизни. Техника и костюмы — раз на чат. Изобретения — по ключу,
+ *  каждое один раз: новые (0.4) досеваются и в старые чаты, будущее появляется, когда история до него дойдёт,
+ *  а удалённое руками не возвращается. У части изобретений сразу есть вещь (часы, кольцо). */
 export function seed() {
     const m = M();
-    if (m.seeded >= 1) return 0;
-    let n = 0;
     const ty = hedyYear() + 0.001;
     const y = storyYear();
     const e = era();
+    let n = 0, changed = false;
+    if (!Array.isArray(m.seedKeys)) {
+        // чаты до 0.4: что первый засев уже предлагал, считаем предложенным
+        m.seedKeys = m.seeded >= 1 ? [...new Set([...D.INVENTIONS.filter(inv => !inv.v && inv.ty <= ty).map(inv => inv.key), ...m.projects.map(p => p.key).filter(Boolean)])] : [];
+        changed = true;
+    }
     for (const inv of D.INVENTIONS) {
-        if (inv.ty > ty || m.projects.some(p => p.key === inv.key)) continue;
-        const p = normProject({ ...inv, stage: 4 }, { src: 'lore' });
+        if (inv.ty > ty || m.seedKeys.includes(inv.key)) continue;
+        m.seedKeys.push(inv.key);
+        changed = true;
+        if (m.projects.some(p => p.key === inv.key)) continue;
+        const p = normProject({ ...inv, stage: inv.stage ?? 4 }, { src: inv.idea ? 'idea' : 'lore' });
         p.key = inv.key;
         p.base.at = -1;
+        if (inv.idea) p.idea = true;
+        if (inv.item && !m.items.some(it => it.key === inv.key)) {
+            const it = normItem(inv.item, { src: 'lab', from: 'лаба' });
+            it.key = inv.key;
+            it.base.at = -1;
+            m.items.push(it);
+            p.released.push(it.id);
+        }
         m.projects.push(p);
         n++;
     }
-    for (const v of D.SEED_VEHICLES) {
-        if (v.from > y + 0.01 || (v.to != null && v.to + 1 <= y) || m.vehicles.some(x => x.key === v.key)) continue;
-        const x = normVeh({ ...v, where: v.whereBy?.[e.id] || v.where }, { src: 'lore' });
-        x.key = v.key; x.base.at = -1; x.desc = v.desc;
-        m.vehicles.push(x);
-        n++;
+    if (!(m.seeded >= 1)) {
+        for (const v of D.SEED_VEHICLES) {
+            if (v.from > y + 0.01 || (v.to != null && v.to + 1 <= y) || m.vehicles.some(x => x.key === v.key)) continue;
+            const x = normVeh({ ...v, where: v.whereBy?.[e.id] || v.where }, { src: 'lore' });
+            x.key = v.key; x.base.at = -1; x.desc = v.desc;
+            m.vehicles.push(x);
+            n++;
+        }
+        const mainOf = new Set(m.suits.filter(x => x.main).map(x => norm(x.who)));
+        for (const s of D.SEED_SUITS) {
+            if ((s.era && s.era !== e.id) || (s.notEra || []).includes(e.id)) continue;
+            const yy = s.who === 'Хеди' ? hedyYear() : y;
+            if (s.from > yy + 0.01 || (s.to != null && s.to + 1 <= yy) || m.suits.some(x => x.key === s.key)) continue;
+            const x = normSuit({ ...s, main: !mainOf.has(norm(s.who)), where: s.whereBy?.[e.id] || s.where }, { src: 'lore' });
+            mainOf.add(norm(s.who));
+            x.base.at = -1;
+            m.suits.push(x);
+            n++;
+        }
+        changed = true;
     }
-    const mainOf = new Set(m.suits.filter(x => x.main).map(x => norm(x.who)));
-    for (const s of D.SEED_SUITS) {
-        if ((s.era && s.era !== e.id) || (s.notEra || []).includes(e.id)) continue;
-        const yy = s.who === 'Хеди' ? hedyYear() : y;
-        if (s.from > yy + 0.01 || (s.to != null && s.to + 1 <= yy) || m.suits.some(x => x.key === s.key)) continue;
-        const x = normSuit({ ...s, main: !mainOf.has(norm(s.who)), where: s.whereBy?.[e.id] || s.where }, { src: 'lore' });
-        mainOf.add(norm(s.who));
-        x.base.at = -1;
-        m.suits.push(x);
-        n++;
-    }
-    m.seeded = 1;
+    if (m.seeded !== 2) { m.seeded = 2; changed = true; }
     if (n) logFeed(`Из лора: ${n} — изобретения, техника, костюмы`, 'sys');
-    touch();
+    if (changed || n) touch();
     return n;
 }
 /** Лаба Арта переезжает сюда (раз на чат). Арт дальше открывает эту лабу и не ведёт свою. */

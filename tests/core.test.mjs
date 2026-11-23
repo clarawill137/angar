@@ -21,7 +21,12 @@ const chron = (i, ang) => C.afterPost(i, { ang }, ctx.chat[i]);
 // 1. лор: 2024
 const n = C.seed();
 const M = C.M();
-assert.equal(M.projects.length, D.INVENTIONS.length, 'в 2024-м известны все изобретения');
+assert.equal(M.projects.length, D.INVENTIONS.filter(inv => inv.ty <= C.hedyYear() + 0.001).length, 'в ноябре 2024-го известно всё, что придумано до него');
+assert.ok(M.projects.length >= 36, 'изобретений по годам стало больше');
+const watch = M.items.find(it => it.key === 'cartier');
+assert.ok(watch && watch.gadget && /пылинк/.test(watch.gadget.does) && C.dyn(watch.id).slot === 'body', 'часы «Картье» — гаджет на руке у Хеди');
+assert.ok(M.projects.find(p => p.key === 'cartier').released.includes(watch.id), 'проект часов знает свою вещь');
+assert.ok(!M.projects.some(p => p.key === 'ring'), 'кольцо Баки — только 24 декабря');
 assert.ok(M.projects.find(p => p.key === 'warp1').dead, 'варп у Паркера — на кладбище');
 assert.deepEqual(M.vehicles.map(v => v.key).sort(), ['boat', 'quinjet', 'skitalets'], 'техника 2024');
 assert.deepEqual(M.suits.map(s => s.key), ['solaris'], 'костюмы 2024: Солярис (спрятан)');
@@ -241,5 +246,184 @@ assert.ok(C.sparMods('Хеди', 'knife').why.some(w => /навык из дос�
 C.sparScene(r1);
 assert.match(C.promptNote(), /Тренировочный зал \(3 этаж\): спарринг Баки × Хеди/);
 assert.ok(C.sparMods('Баки', 'box').mod <= 6, 'потолок +6');
+
+// 21. 0.4 — досев: старый чат (засеян до 0.4) получает новые изобретения, удалённое не воскресает, будущее — по дате
+ctx.chatMetadata = {}; ctx.chat = []; date = '21.11.2024'; C.bump();
+{
+    const m = C.M();
+    m.seeded = 1;
+    m.projects = D.INVENTIONS.filter(inv => !inv.v && inv.key !== 'sharik').map(inv => C.normProject({ ...inv, stage: 4 }, { src: 'lore' })).map((p, i) => { p.key = D.INVENTIONS.filter(inv => !inv.v && inv.key !== 'sharik')[i].key; return p; });
+    const n = C.seed();
+    assert.ok(n >= 20, `досеяно новых: ${n}`);
+    assert.ok(!m.projects.some(p => p.key === 'sharik'), 'удалённый руками Шарик не вернулся');
+    assert.ok(m.projects.some(p => p.key === 'cartier') && m.items.some(it => it.key === 'cartier'), 'часы досеяны вместе с вещью');
+    assert.ok(m.projects.find(p => p.key === 'jammer').idea, 'придуманное помечено');
+    assert.equal(m.projects.find(p => p.key === 'bionic') && C.projStage(m.projects.find(p => p.key === 'bionic')), 2, 'бионическая кисть — ещё прототип');
+    const ver = m.ver;
+    assert.equal(C.seed(), 0);
+    assert.equal(m.ver, ver, 'без новостей — без лишнего сохранения');
+    date = '26.12.2024'; C.bump();
+    assert.ok(C.seed() >= 3, 'дошли до Рождества — пластырь, кольцо и генератор');
+    const ring = m.items.find(it => it.key === 'ring');
+    assert.ok(ring && /Баки/.test(ring.owner) && /GPS/.test(ring.gadget.does), 'кольцо Баки — у Баки, с маячком');
+    date = '21.11.2024'; C.bump();
+}
+
+// 22. мастерская: каталог по эпохе, кубик, статы, ценность, снятие с откатом
+{
+    const glock = C.addItem({ name: 'Глок 19', kind: 'pistol', caliber: '9×19 мм', cap: 15, owner: 'Баки', price: '600', stats: { dmg: 3, acc: 3, range: 2, conceal: 4, noise: 4, reliab: 5 } });
+    const cat = C.upCatalog(glock).map(u => u.id);
+    assert.ok(cat.includes('supp') && cat.includes('smart') && cat.includes('extmag'), 'в 2024-м — глушитель, умный прицел, магазины');
+    assert.ok(!cat.includes('vshield') && !cat.includes('edge'), 'не своё — мимо');
+    assert.equal(C.upType(glock), 'gun');
+    assert.equal(C.valueOf(glock).total, 600);
+    const supp = C.upSpec(glock, 'supp');
+    const mods = C.upMods(glock, supp, 'Баки');
+    assert.ok(mods.some(m => m.key === 'who' && m.v === 4), 'Баки — оружейник: +4');
+    const r = C.rollUp(glock, supp, mods, { who: 'Баки', roll: 12 });
+    assert.equal(r.out, 'win', '12 + 4 = 16 — успех');
+    assert.match(C.fxLine(r.fx, 'gun'), /−2 шум/);
+    await C.applyUp(r, { scene: true });
+    assert.equal(glock.stats.noise, 2);
+    assert.equal(glock.stats.conceal, 3);
+    assert.ok(glock.mods.includes('Глушитель'));
+    assert.equal(C.valueOf(glock).total, 600 + Math.round(600 * 0.12), 'ценность выросла');
+    assert.match(C.promptNote(), /Мастерская \(Ангар · кубик\): Баки ставит «Глушитель» на «Глок 19» — успех/);
+    // прорыв: сверху +1 к главному
+    const opt = C.upSpec(glock, 'optic');
+    const r2 = C.rollUp(glock, opt, [], { who: 'Баки', roll: 20 });
+    assert.equal(r2.out, 'break');
+    assert.equal(r2.fx.d.acc, 2, 'прорыв: точность +2 вместо +1');
+    await C.applyUp(r2);
+    assert.equal(glock.stats.acc, 5);
+    // частичный: побочка
+    const ext = C.upSpec(glock, 'extmag');
+    const r3 = C.rollUp(glock, ext, [], { who: 'Баки', roll: 11 });
+    assert.equal(r3.out, 'part');
+    await C.applyUp(r3);
+    assert.equal(glock.cap, 23, 'ёмкость ×1.5');
+    assert.equal(glock.stats.reliab, 4, 'частично — надёжность −1');
+    // снять — всё назад
+    const rec = glock.ups.find(u => u.cat === 'extmag');
+    C.removeUp(glock, rec.id);
+    assert.equal(glock.cap, 15);
+    assert.equal(glock.stats.reliab, 5);
+    assert.ok(!glock.mods.includes('Удлинённые магазины'));
+    // провал и бабах
+    const smart = C.upSpec(glock, 'smart');
+    const r4 = C.rollUp(glock, smart, [], { who: 'Хеди', roll: 1 });
+    assert.equal(r4.out, 'boom', 'лабный апгрейд ствола: единица — бабах');
+    await C.applyUp(r4);
+    assert.equal(C.dyn(glock.id).cond, 60, 'бабах: состояние −40');
+    assert.ok(!glock.mods.includes('Умный прицел А.Р.Т.У.Р.а'));
+    // 1944: только своё время
+    date = '10.03.1944'; C.bump();
+    const c44 = C.upCatalog(glock).map(u => u.id);
+    assert.ok(c44.includes('supp') && !c44.includes('smart') && !c44.includes('light'), '1944: глушитель есть, умного прицела нет');
+    assert.equal(C.upCatalog(glock).find(u => u.id === 'supp').cost, Math.round(650 * 0.06), 'цены сороковых');
+    assert.equal(C.upCatalog(glock).find(u => u.id === 'optic').name, 'Оптический прицел');
+    date = '21.11.2024'; C.bump();
+
+    // техника: бак, run-flat, ценность
+    const car = C.addVeh({ kind: 'car', name: 'Додж', price: '40000', stats: { speed: 3, handling: 3, armor: 1, range: 600 } });
+    const tank = C.upSpec(car, 'vtank');
+    await C.applyUp(C.rollUp(car, tank, [], { who: 'Баки', roll: 15 }));
+    assert.equal(car.stats.range, 900, 'бак: запас хода ×1.5');
+    assert.ok(car.mods.some(m => m.name === 'Дополнительный бак' && m.up));
+    const rf = C.upSpec(car, 'vrunflat');
+    await C.applyUp(C.rollUp(car, rf, [], { who: 'Баки', roll: 15 }));
+    assert.ok(C.valueOf(car).ups > 0);
+    const before = C.valueOf(car).total;
+    C.removeUp(car, car.ups[0].id);
+    assert.equal(car.stats.range, 600, 'сняли бак');
+    assert.ok(C.valueOf(car).total < before);
+
+    // костюм: броня, система, статы
+    const suit = C.addSuit({ who: 'Хеди', name: 'Солярис', kind: 'hero', armor: 3 });
+    assert.deepEqual(C.suitStats(suit), { mob: 3, stealth: 2, power: 3 });
+    const vib = C.upSpec(suit, 'svib');
+    assert.ok(C.upMods(suit, vib, 'Хеди').some(m => m.key === 'mat' && m.v === -3), 'нет вибраниума — минус три');
+    C.M().materials.push({ id: 'vb', name: 'Вибраниум', qty: 2, unit: 'кг' });
+    assert.ok(!C.upMods(suit, vib, 'Хеди').some(m => m.key === 'mat'));
+    await C.applyUp(C.rollUp(suit, vib, [], { who: 'Хеди', roll: 16 }));
+    assert.equal(suit.armor, 4, 'вибраниевая подкладка: броня +1');
+    assert.equal(C.matById('vb').qty, 1, 'вибраниум потрачен');
+    const jets = C.upSpec(suit, 'sjets');
+    await C.applyUp(C.rollUp(suit, jets, [], { who: 'Хеди', roll: 18 }));
+    assert.equal(suit.stats.mob, 5);
+    assert.ok(suit.systems.some(y => y.name === 'Ускорители'));
+    assert.ok(suit.upgrades.some(u => u.name === 'Реактивные ускорители' && u.from === 'мастерская'));
+    C.sdyn(suit.id); C.setSdyn(suit.id, { worn: true }); present = ['Хеди'];
+    assert.match(C.promptNote(), /в костюме «Солярис» \(броня 4\/5 — держит винтовочную пулю/);
+    assert.match(C.promptNote(), /Реактивные ускорители — короткие прыжки/);
+    const jrec = suit.ups.find(u => u.cat === 'sjets');
+    C.removeUp(suit, jrec.id);
+    assert.equal(suit.stats.mob, 3);
+    assert.ok(!suit.systems.some(y => y.name === 'Ускорители'), 'система ушла вместе с апгрейдом');
+
+    // изобретение лабы как апгрейд: что даст — по выбору
+    const inv = C.addProject({ name: 'Пылевой экран', field: 'cyber', out: 'mod', stage: 4, ty: 2024 });
+    const lab = C.upLab(suit).find(u => u.pid === inv.id);
+    assert.ok(lab, 'готовое изобретение — в списке «Из лабы»');
+    assert.equal(lab.focus, 'stealth', 'кибер в костюме — по умолчанию скрытность');
+    const rl = C.rollUp(suit, lab, C.upMods(suit, lab, 'Хеди'), { who: 'Хеди', roll: 10, focus: 'power' });
+    assert.equal(rl.out, 'win', '10 + Хеди 4 + своё 1 + база 2 − сложность 1 = 16');
+    assert.ok(rl.mods.some(m => m.label === 'своё изобретение'));
+    await C.applyUp(rl);
+    assert.equal(suit.stats.power, 4, 'выбрали автономность');
+    assert.ok(suit.systems.some(y => y.name === 'Пылевой экран'), 'изобретение — своя система в костюме');
+    assert.ok(inv.released.includes(suit.id));
+    assert.ok(!C.upLab(suit).some(u => u.pid === inv.id), 'второй раз то же не ставится');
+    present = ['Баки'];
+}
+
+// 23. сплав: части → кубик → одно изобретение; заделы автора — мимо
+{
+    const a = C.addProject({ name: 'Нано-горошина', field: 'cyber', out: 'gadget', stage: 4, ty: 2024 });
+    const b = C.addProject({ name: 'Фотонный щит', field: 'energy', out: 'mod', stage: 1, ty: 2024 });
+    C.M().insights.unshift({ id: 'iset', at: '', roll: 12, kind: 'spy', ideas: [{ id: 'i1', title: 'Пуговица-камера', text: 'камера в пуговице', field: 'cyber', out: 'gadget' }] });
+    const parts = [{ kind: 'proj', id: a.id }, { kind: 'proj', id: b.id }, { kind: 'idea', set: 'iset', id: 'i1' }].map(C.fusePart);
+    assert.ok(parts.every(Boolean));
+    const fm = C.fuseMods(parts, ['Тони Старк']);
+    assert.ok(fm.some(m => m.key === 'three' && m.v === -1) && fm.some(m => m.label === 'Тони рядом (и спорит)'));
+    assert.ok(!fm.some(m => m.key === 'ready'), 'щит не готов — «всё работает» не даём');
+    let fuseAsked = null;
+    api.askDeepJson = async (msgs, t, o) => { fuseAsked = msgs; if (/сплав/.test(o.what)) return { name: 'Невидимый свидетель', note: 'Пуговица, которая слышит и закрывается щитом.', spec: 'слушает 3 часа', field: 'cyber', out: 'gadget', quirk: '', scene: 'пуговица чуть теплеет' }; return {}; };
+    const fr = C.rollFuse(parts, fm, { roll: 17 });
+    assert.equal(fr.out, 'win');
+    const got = await C.fuse(fr, { helpers: ['Тони Старк'], scene: true });
+    assert.equal(got.p.name, 'Невидимый свидетель');
+    assert.equal(C.projStage(got.p), 1, 'щит не готов — сплав начинается с теории');
+    assert.ok(got.p.needs.includes(b.id), 'ждёт неготовую часть');
+    assert.deepEqual(got.p.fused, ['Нано-горошина', 'Фотонный щит', 'Пуговица-камера']);
+    assert.ok(C.M().insights.find(x => x.id === 'iset').ideas[0].used, 'идея ушла в сплав');
+    assert.match(fuseAsked[0].content, /одну вещь с новой сутью/);
+    assert.match(fuseAsked[1].content, /Пуговица-камера \(идея/);
+    assert.match(C.promptNote(), /сплавляет Нано-горошина, Фотонный щит и Пуговица-камера/);
+    // задел автора: модель полезла в запретное — берём простое имя
+    C._setPlanKeys({ titles: ['Задел: сюрприз'], re: /приставк/i });
+    api.askDeepJson = async () => ({ name: 'Игровая приставка-щит', note: 'приставка', field: 'cyber', out: 'gadget' });
+    const g2 = await C.fuse(C.rollFuse(parts.slice(0, 2), [], { roll: 16 }));
+    assert.equal(g2.p.name, 'Нано-горошина × Фотонный щит', 'задел автора не прошёл');
+    // провал — урок, бабах — авария
+    api.askDeepJson = async () => ({ name: 'Урок: щит глушит горошину', note: 'энергия щита забивает канал', field: 'cyber', out: 'gadget' });
+    const g3 = await C.fuse(C.rollFuse(parts.slice(0, 2), [], { roll: 5 }));
+    assert.ok(g3.lesson && C.M().insights[0].kind === 'fuse', 'провал: урок в инсайтах');
+    C.bumpProject(b, 30);
+    const pct0 = C.projPct(b);
+    const g4 = await C.fuse(C.rollFuse(parts.slice(0, 2), [], { roll: 1 }));
+    assert.ok(g4.boom, 'энергия в сплаве: единица — бабах');
+    assert.equal(C.projPct(b), pct0 - 10, 'авария откатила неготовую часть');
+
+    // инсайты: восемь жанров и фильтр заделов
+    assert.equal(D.insightOf(15).id, 'up');
+    assert.equal(D.insightOf(12).id, 'spy');
+    assert.equal(D.insightOf(6).id, 'kin');
+    api.askDeepJson = async () => ({ ideas: [{ title: 'Приставка для Баки', text: 'игровая приставка', field: 'tech', out: 'gadget' }, { title: 'Термос-сейф', text: 'держит чай и патроны', scene: 'щёлк — и пахнет чаем', cost: 'тяжёлый', field: 'tech', out: 'gadget' }] });
+    const ins = await C.insights(15);
+    assert.deepEqual(ins.ideas.map(y => y.title), ['Термос-сейф'], 'задел автора отфильтрован');
+    assert.equal(ins.ideas[0].scene, 'щёлк — и пахнет чаем');
+    C._setPlanKeys({ titles: [], re: null });
+}
 
 console.log('ангар · логика: все проверки прошли');
